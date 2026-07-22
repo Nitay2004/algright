@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroStream - Adaptive EEG Dashboard</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #1a2035;
+            --bg-card-hover: #1f2842;
+            --border: #2a3450;
+            --text-primary: #e8eaf0;
+            --text-secondary: #8892a8;
+            --text-muted: #5a6380;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --accent-purple: #8b5cf6;
+            --glow-blue: 0 0 20px rgba(59,130,246,0.3);
+            --glow-cyan: 0 0 20px rgba(6,182,212,0.3);
+            --glow-green: 0 0 20px rgba(16,185,129,0.3);
+        }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-brand svg { width: 36px; height: 36px; }
+        .header-brand h1 {
+            font-size: 22px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header-brand span {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: block;
+            margin-top: -2px;
+        }
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-idle { background: rgba(90,99,128,0.2); color: var(--text-muted); }
+        .status-running { background: rgba(59,130,246,0.15); color: var(--accent-blue); }
+        .status-complete { background: rgba(16,185,129,0.15); color: var(--accent-green); }
+        .status-error { background: rgba(239,68,68,0.15); color: var(--accent-red); }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .status-running .status-dot { background: var(--accent-blue); }
+        .status-complete .status-dot { background: var(--accent-green); }
+        .status-idle .status-dot { background: var(--text-muted); }
+        .status-error .status-dot { background: var(--accent-red); }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 0;
+            min-height: calc(100vh - 70px);
+        }
+
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            padding: 24px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 70px);
+        }
+
+        .sidebar-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .sidebar-section h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .mode-buttons { display: flex; flex-direction: column; gap: 8px; }
+        .mode-btn {
+            padding: 12px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-primary);
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .mode-btn:hover { border-color: var(--accent-blue); background: rgba(59,130,246,0.05); }
+        .mode-btn.active { border-color: var(--accent-blue); background: rgba(59,130,246,0.1); box-shadow: var(--glow-blue); }
+        .mode-btn .mode-title { font-size: 14px; font-weight: 600; display: block; }
+        .mode-btn .mode-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
+
+        .control-group { margin-bottom: 12px; }
+        .control-group label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .control-group input, .control-group select {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .control-group input:focus, .control-group select:focus {
+            border-color: var(--accent-blue);
+        }
+        .control-group select { cursor: pointer; }
+        .control-group select option { background: var(--bg-secondary); }
+
+        .start-btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .start-btn.ready {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            color: white;
+            box-shadow: var(--glow-blue);
+        }
+        .start-btn.ready:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 30px rgba(59,130,246,0.5);
+        }
+        .start-btn.running {
+            background: var(--bg-card);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        .progress-bar-container {
+            background: var(--bg-primary);
+            border-radius: 6px;
+            height: 8px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.5s ease;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+        }
+        .progress-text {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .main-content {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 70px);
+        }
+
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+        }
+        .metric-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+            transition: all 0.2s;
+        }
+        .metric-card:hover { border-color: var(--accent-blue); transform: translateY(-2px); }
+        .metric-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: 800;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1;
+        }
+        .metric-value.blue { color: var(--accent-blue); }
+        .metric-value.cyan { color: var(--accent-cyan); }
+        .metric-value.green { color: var(--accent-green); }
+        .metric-value.amber { color: var(--accent-amber); }
+        .metric-value.purple { color: var(--accent-purple); }
+        .metric-unit {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .chart-card.full { grid-column: 1 / -1; }
+        .chart-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 14px;
+            color: var(--text-primary);
+        }
+        .chart-card h3 span {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+            margin-left: 8px;
+        }
+        .chart-canvas {
+            width: 100%;
+            height: 220px;
+        }
+        .chart-canvas.tall { height: 300px; }
+
+        .eeg-live-container {
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+        .eeg-live-canvas {
+            width: 100%;
+            height: 280px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+        }
+
+        .prediction-box {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: var(--bg-primary);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+        .pred-label { font-size: 12px; color: var(--text-muted); }
+        .pred-value { font-size: 24px; font-weight: 700; }
+        .pred-bar {
+            flex: 1;
+            height: 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .pred-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .activity-log {
+            background: var(--bg-primary);
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        .log-entry {
+            padding: 3px 0;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(42,52,80,0.5);
+        }
+        .log-entry .log-time { color: var(--text-muted); margin-right: 8px; }
+        .log-entry .log-phase { color: var(--accent-cyan); }
+        .log-entry .log-error { color: var(--accent-red); }
+        .log-entry .log-success { color: var(--accent-green); }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const socket = io(window.location.origin, { transports: ["websocket", "polling"] });
+
+        function BrainIcon() {
+            return (
+                <svg viewBox="0 0 36 36" fill="none">
+                    <circle cx="18" cy="18" r="17" stroke="url(#g1)" strokeWidth="2" opacity="0.3"/>
+                    <path d="M18 6C12 6 8 10 8 15c0 3 1 5 3 7l1 1c1 1 2 3 2 5h8c0-2 1-4 2-5l1-1c2-2 3-4 3-7 0-5-4-9-10-9z"
+                          stroke="url(#g1)" strokeWidth="1.5" fill="none"/>
+                    <path d="M14 26h8M15 29h6" stroke="url(#g1)" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="18" cy="14" r="2" fill="url(#g1)" opacity="0.8"/>
+                    <path d="M12 12c2-1 4-1 6 0M18 12c2-1 4-1 6 0" stroke="url(#g1)" strokeWidth="1" opacity="0.5"/>
+                    <defs><linearGradient id="g1" x1="0" y1="0" x2="36" y2="36">
+                        <stop stopColor="#3b82f6"/><stop offset="1" stopColor="#06b6d4"/>
+                    </linearGradient></defs>
+                </svg>
+            );
+        }
+
+        function App() {
+            const [mode, setMode] = useState("offline");
+            const [running, setRunning] = useState(false);
+            const [progress, setProgress] = useState(0);
+            const [phase, setPhase] = useState("Idle");
+            const [channels, setChannels] = useState(64);
+            const [sfreq, setSfreq] = useState(250);
+            const [snr, setSnr] = useState(-5);
+            const [filterType, setFilterType] = useState("lms");
+            const [logs, setLogs] = useState([]);
+            const [metrics, setMetrics] = useState({});
+
+            const [eegNoisy, setEegNoisy] = useState(null);
+            const [eegDenoised, setEegDenoised] = useState(null);
+            const [lossData, setLossData] = useState([]);
+            const [bandPower, setBandPower] = useState(null);
+            const [confusionMatrix, setConfusionMatrix] = useState(null);
+            const [rocData, setRocData] = useState(null);
+            const [latency, setLatency] = useState(null);
+            const [adaptationEvents, setAdaptEvents] = useState([]);
+
+            const [streamPrediction, setStreamPrediction] = useState(null);
+
+            const logsRef = useRef(null);
+            const chartRefs = useRef({});
+            const eegCanvasRef = useRef(null);
+            const eegChartRef = useRef(null);
+            const noisyChannelRef = useRef(0);
+
+            const addLog = useCallback((msg, type = "info") => {
+                const time = new Date().toLocaleTimeString();
+                setLogs(prev => [...prev.slice(-100), { time, msg, type }]);
+            }, []);
+
+            useEffect(() => {
+                if (logsRef.current) {
+                    logsRef.current.scrollTop = logsRef.current.scrollHeight;
+                }
+            }, [logs]);
+
+            useEffect(() => {
+                socket.on("connected", () => addLog("Connected to server", "success"));
+                socket.on("pipeline_status", (data) => {
+                    setRunning(true);
+                    setPhase(data.phase || "");
+                    setProgress(data.progress || 0);
+                    addLog(data.phase, "phase");
+                });
+                socket.on("pipeline_complete", () => {
+                    setRunning(false);
+                    setProgress(100);
+                    addLog("Pipeline complete!", "success");
+                });
+                socket.on("pipeline_error", (data) => {
+                    setRunning(false);
+                    addLog(`Error: ${data.error}`, "error");
+                });
+                socket.on("pipeline_metrics", (data) => {
+                    setMetrics(data);
+                });
+                socket.on("eeg_initial", (data) => {
+                    setEegNoisy(data);
+                    noisyChannelRef.current = 0;
+                });
+                socket.on("eeg_denoised", (data) => {
+                    setEegDenoised(data);
+                });
+                socket.on("training_progress", (data) => {
+                    setLossData(data.losses);
+                });
+                socket.on("band_power", (data) => {
+                    setBandPower(data);
+                });
+                socket.on("confusion_matrix", (data) => {
+                    setConfusionMatrix(data);
+                });
+                socket.on("roc_curve", (data) => {
+                    setRocData(data);
+                });
+                socket.on("latency", (data) => {
+                    setLatency(data);
+                });
+                socket.on("adaptation_progress", (data) => {
+                    addLog(`Adaptation epoch ${data.epoch}/${data.total}`, "phase");
+                });
+                socket.on("stream_prediction", (data) => {
+                    setStreamPrediction(data);
+                });
+                socket.on("stream_trial", (data) => {
+                    setEegNoisy({ noisy: data.noisy, channels: data.noisy.length, samples: data.noisy[0].length, sfreq: 250 });
+                    setEegDenoised({ denoised: data.denoised, adapted: data.adapted });
+                });
+                socket.on("filter_progress", (data) => {
+                    addLog(`Filtering trial ${data.trial}/${data.total}`, "phase");
+                });
+                socket.on("dataset_loaded", (data) => {
+                    addLog(`Dataset: ${data.n_trials} trials, ${data.n_channels}ch, ${data.sfreq}Hz`, "success");
+                });
+
+                return () => {
+                    socket.off("connected");
+                    socket.off("pipeline_status");
+                    socket.off("pipeline_complete");
+                    socket.off("pipeline_error");
+                    socket.off("pipeline_metrics");
+                    socket.off("eeg_initial");
+                    socket.off("eeg_denoised");
+                    socket.off("training_progress");
+                    socket.off("band_power");
+                    socket.off("confusion_matrix");
+                    socket.off("roc_curve");
+                    socket.off("latency");
+                    socket.off("adaptation_progress");
+                    socket.off("stream_prediction");
+                    socket.off("stream_trial");
+                    socket.off("filter_progress");
+                    socket.off("dataset_loaded");
+                };
+            }, [addLog]);
+
+            const startPipeline = () => {
+                setRunning(true);
+                setProgress(0);
+                setLossData([]);
+                setMetrics({});
+                setEegDenoised(null);
+                setConfusionMatrix(null);
+                setRocData(null);
+                setBandPower(null);
+                setLatency(null);
+                setStreamPrediction(null);
+                setAdaptEvents([]);
+                socket.emit("start_pipeline", { mode, channels, sfreq, snr, filter: filterType });
+            };
+
+            return (
+                <div>
+                    <header className="header">
+                        <div className="header-brand">
+                            <BrainIcon />
+                            <div>
+                                <h1>NeuroStream</h1>
+                                <span>Adaptive AI EEG Denoising & Classification</span>
+                            </div>
+                        </div>
+                        <div className={`status-badge ${running ? 'status-running' : progress === 100 ? 'status-complete' : 'status-idle'}`}>
+                            <div className="status-dot"></div>
+                            {running ? 'Running' : progress === 100 ? 'Complete' : 'Idle'}
+                        </div>
+                    </header>
+
+                    <div className="dashboard">
+                        <aside className="sidebar">
+                            <div className="sidebar-section">
+                                <h3>Pipeline Mode</h3>
+                                <div className="mode-buttons">
+                                    {[
+                                        { id: "offline", title: "Offline Synthetic", desc: "200 trials, no hardware needed" },
+                                        { id: "dataset", title: "PhysioNet Dataset", desc: "Real EEG from MOABB" },
+                                        { id: "synthetic_stream", title: "Live Stream", desc: "Real-time BCI simulation" },
+                                    ].map(m => (
+                                        <button key={m.id} className={`mode-btn ${mode === m.id ? 'active' : ''}`}
+                                                onClick={() => setMode(m.id)} disabled={running}>
+                                            <span className="mode-title">{m.title}</span>
+                                            <span className="mode-desc">{m.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="sidebar-section">
+                                <h3>Parameters</h3>
+                                <div className="control-group">
+                                    <label>Channels</label>
+                                    <input type="number" value={channels} onChange={e => setChannels(+e.target.value)} disabled={running}/>
+                                </div>
+                                <div className="control-group">
+                                    <label>Sampling Rate (Hz)</label>
+                                    <input type="number" value={sfreq} onChange={e => setSfreq(+e.target.value)} disabled={running}/>
+                                </div>
+                                <div className="control-group">
+                                    <label>Noise SNR (dB)</label>
+                                    <input type="number" value={snr} step="0.5" onChange={e => setSnr(+e.target.value)} disabled={running}/>
+                                </div>
+                                <div className="control-group">
+                                    <label>Adaptive Filter</label>
+                                    <select value={filterType} onChange={e => setFilterType(e.target.value)} disabled={running}>
+                                        <option value="lms">LMS</option>
+                                        <option value="rls">RLS</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button className={`start-btn ${running ? 'running' : 'ready'}`}
+                                    onClick={startPipeline} disabled={running}>
+                                {running ? 'Processing...' : 'Run Pipeline'}
+                            </button>
+
+                            <div className="sidebar-section">
+                                <h3>Progress</h3>
+                                <div className="progress-bar-container">
+                                    <div className="progress-bar-fill" style={{width: `${progress}%`}}></div>
+                                </div>
+                                <div className="progress-text mono">{phase}</div>
+                            </div>
+
+                            <div className="sidebar-section" style={{flex: 1, minHeight: 0}}>
+                                <h3>Activity Log</h3>
+                                <div className="activity-log" ref={logsRef}>
+                                    {logs.map((l, i) => (
+                                        <div key={i} className="log-entry">
+                                            <span className="log-time">{l.time}</span>
+                                            <span className={l.type === 'error' ? 'log-error' : l.type === 'success' ? 'log-success' : 'log-phase'}>{l.msg}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </aside>
+
+                        <main className="main-content">
+                            <div className="metrics-row">
+                                <MetricCard label="SNR Before" value={metrics.snr_before?.toFixed(1) ?? '--'} unit="dB" color="red"/>
+                                <MetricCard label="SNR After" value={metrics.snr_after?.toFixed(1) ?? '--'} unit="dB" color="cyan"/>
+                                <MetricCard label="CV Accuracy" value={metrics.accuracy ? (metrics.accuracy * 100).toFixed(1) : '--'} unit="%" color="green"/>
+                                <MetricCard label="Latency" value={latency?.mean_ms?.toFixed(1) ?? '--'} unit="ms" color="amber"/>
+                                <MetricCard label="Inference" value={latency && latency.mean_ms < 100 ? 'YES' : '--'} unit="real-time" color="purple"/>
+                            </div>
+
+                            <div className="chart-card full">
+                                <h3>Live EEG Signal <span>Multi-channel comparison</span></h3>
+                                <LiveEEGCanvas ref={eegCanvasRef} noisyData={eegNoisy} denoisedData={eegDenoised}/>
+                            </div>
+
+                            <div className="charts-grid">
+                                <div className="chart-card">
+                                    <h3>DAE Training <span>Loss convergence</span></h3>
+                                    <LossChart data={lossData}/>
+                                </div>
+                                <div className="chart-card">
+                                    <h3>Band Power <span>Frequency analysis</span></h3>
+                                    <BandPowerChart data={bandPower}/>
+                                </div>
+                                <div className="chart-card">
+                                    <h3>Confusion Matrix <span>Classification</span></h3>
+                                    <ConfusionMatrix data={confusionMatrix}/>
+                                </div>
+                                <div className="chart-card">
+                                    <h3>ROC Curve <span>AUC analysis</span></h3>
+                                    <ROCChart data={rocData}/>
+                                </div>
+                            </div>
+
+                            {streamPrediction && (
+                                <div className="chart-card full">
+                                    <h3>Live Prediction</h3>
+                                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16}}>
+                                        <div className="prediction-box">
+                                            <div>
+                                                <div className="pred-label">Predicted</div>
+                                                <div className="pred-value" style={{color: streamPrediction.predicted === 1 ? 'var(--accent-green)' : 'var(--accent-blue)'}}>
+                                                    {streamPrediction.predicted === 1 ? 'RIGHT' : 'LEFT'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="prediction-box">
+                                            <div>
+                                                <div className="pred-label">True Label</div>
+                                                <div className="pred-value" style={{color: streamPrediction.true_label === 1 ? 'var(--accent-green)' : 'var(--accent-blue)'}}>
+                                                    {streamPrediction.true_label === 1 ? 'RIGHT' : 'LEFT'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="prediction-box" style={{flexDirection:'column', alignItems:'stretch'}}>
+                                            <div className="pred-label">Confidence</div>
+                                            <div className="pred-bar">
+                                                <div className="pred-bar-fill" style={{
+                                                    width: `${streamPrediction.confidence * 100}%`,
+                                                    background: streamPrediction.confidence > 0.7 ? 'var(--accent-green)' : 'var(--accent-amber)'
+                                                }}></div>
+                                            </div>
+                                            <div className="mono" style={{fontSize:14, fontWeight:700, color: streamPrediction.confidence > 0.7 ? 'var(--accent-green)' : 'var(--accent-amber)'}}>
+                                                {(streamPrediction.confidence * 100).toFixed(1)}%
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                </div>
+            );
+        }
+
+        function MetricCard({ label, value, unit, color }) {
+            return (
+                <div className="metric-card">
+                    <div className="metric-label">{label}</div>
+                    <div className={`metric-value ${color}`}>{value}</div>
+                    <div className="metric-unit">{unit}</div>
+                </div>
+            );
+        }
+
+        const LiveEEGCanvas = React.forwardRef(({ noisyData, denoisedData }, ref) => {
+            const canvasRef = useRef(null);
+            const animRef = useRef(null);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext("2d");
+                const W = canvas.width = canvas.offsetWidth;
+                const H = canvas.height = canvas.offsetHeight;
+
+                ctx.fillStyle = "#0a0e17";
+                ctx.fillRect(0, 0, W, H);
+
+                const channels = Math.min(noisyData?.channels ?? 16, 20);
+                const samples = noisyData?.samples ?? 250;
+                const channelH = H / channels;
+
+                if (noisyData?.noisy) {
+                    for (let ch = 0; ch < channels; ch++) {
+                        const yOff = ch * channelH + channelH / 2;
+
+                        ctx.strokeStyle = "rgba(239,68,68,0.5)";
+                        ctx.lineWidth = 0.8;
+                        ctx.beginPath();
+                        const data = noisyData.noisy[ch];
+                        if (!data) continue;
+                        const maxAbs = Math.max(...data.map(Math.abs), 1);
+                        for (let i = 0; i < data.length; i++) {
+                            const x = (i / data.length) * W;
+                            const y = yOff - (data[i] / maxAbs) * (channelH * 0.4);
+                            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                        }
+                        ctx.stroke();
+
+                        if (denoisedData?.denoised) {
+                            const ddata = denoisedData.denoised[ch];
+                            if (ddata) {
+                                ctx.strokeStyle = "rgba(59,130,246,0.8)";
+                                ctx.lineWidth = 1;
+                                ctx.beginPath();
+                                for (let i = 0; i < ddata.length; i++) {
+                                    const x = (i / ddata.length) * W;
+                                    const y = yOff - (ddata[i] / maxAbs) * (channelH * 0.4);
+                                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                                }
+                                ctx.stroke();
+                            }
+                        }
+
+                        ctx.fillStyle = "rgba(90,99,128,0.4)";
+                        ctx.font = "9px JetBrains Mono";
+                        ctx.fillText(`Ch${ch + 1}`, 4, ch * channelH + 12);
+
+                        if (ch < channels - 1) {
+                            ctx.strokeStyle = "rgba(42,52,80,0.4)";
+                            ctx.lineWidth = 0.5;
+                            ctx.beginPath();
+                            ctx.moveTo(0, (ch + 1) * channelH);
+                            ctx.lineTo(W, (ch + 1) * channelH);
+                            ctx.stroke();
+                        }
+                    }
+                }
+
+                ctx.fillStyle = "rgba(239,68,68,0.7)";
+                ctx.fillRect(W - 180, 8, 8, 8);
+                ctx.fillStyle = "rgba(136,146,168,0.8)";
+                ctx.font = "10px Inter";
+                ctx.fillText("Noisy", W - 168, 16);
+
+                if (denoisedData?.denoised) {
+                    ctx.fillStyle = "rgba(59,130,246,0.8)";
+                    ctx.fillRect(W - 100, 8, 8, 8);
+                    ctx.fillStyle = "rgba(136,146,168,0.8)";
+                    ctx.fillText("Denoised", W - 88, 16);
+                }
+
+            }, [noisyData, denoisedData]);
+
+            return <canvas ref={canvasRef} className="eeg-live-canvas"/>;
+        });
+
+        function LossChart({ data }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !data || data.length === 0) return;
+
+                if (chartRef.current) chartRef.current.destroy();
+
+                chartRef.current = new Chart(canvasRef.current, {
+                    type: "line",
+                    data: {
+                        labels: data.map((_, i) => i + 1),
+                        datasets: [{
+                            label: "Training Loss",
+                            data: data,
+                            borderColor: "#3b82f6",
+                            backgroundColor: "rgba(59,130,246,0.1)",
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 2,
+                            pointBackgroundColor: "#06b6d4",
+                            borderWidth: 2,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { title: { display: true, text: "Epoch", color: "#5a6380" }, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" } },
+                            y: { title: { display: true, text: "MSE Loss", color: "#5a6380" }, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" }, type: "logarithmic" }
+                        }
+                    }
+                });
+
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [data]);
+
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        function BandPowerChart({ data }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !data) return;
+                if (chartRef.current) chartRef.current.destroy();
+
+                const bands = ["delta", "theta", "alpha", "beta", "gamma"];
+                chartRef.current = new Chart(canvasRef.current, {
+                    type: "bar",
+                    data: {
+                        labels: bands.map(b => b.charAt(0).toUpperCase() + b.slice(1)),
+                        datasets: [
+                            { label: "Noisy", data: bands.map(b => data[b]?.noisy ?? 0), backgroundColor: "rgba(239,68,68,0.7)", borderRadius: 4 },
+                            { label: "Denoised", data: bands.map(b => data[b]?.denoised ?? 0), backgroundColor: "rgba(59,130,246,0.7)", borderRadius: 4 },
+                            { label: "Clean", data: bands.map(b => data[b]?.clean ?? 0), backgroundColor: "rgba(16,185,129,0.7)", borderRadius: 4 },
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: "#8892a8", font: { size: 10 } } } },
+                        scales: {
+                            x: { ticks: { color: "#5a6380" }, grid: { display: false } },
+                            y: { ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" }, type: "logarithmic" }
+                        }
+                    }
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [data]);
+
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        function ConfusionMatrix({ data }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !data || !data.matrix) return;
+                if (chartRef.current) chartRef.current.destroy();
+
+                const matrix = data.matrix;
+                const labels = data.labels;
+                const n = labels.length;
+                const flatData = [];
+                for (let i = 0; i < n; i++) {
+                    for (let j = 0; j < n; j++) {
+                        flatData.push({ x: j, y: i, v: matrix[i][j] });
+                    }
+                }
+                const maxVal = Math.max(...flatData.map(d => d.v), 1);
+
+                const ctx = canvasRef.current.getContext("2d");
+                const W = canvasRef.current.width = canvasRef.current.parentElement.offsetWidth;
+                const H = canvasRef.current.height = 220;
+                const pad = 60;
+                const cellW = (W - pad - 20) / n;
+                const cellH = (H - pad - 20) / n;
+
+                ctx.fillStyle = "#0a0e17";
+                ctx.fillRect(0, 0, W, H);
+
+                flatData.forEach(d => {
+                    const intensity = d.v / maxVal;
+                    const r = Math.round(59 + intensity * (16 - 59));
+                    const g = Math.round(130 + intensity * (185 - 130));
+                    const b = Math.round(246 + intensity * (129 - 246));
+                    ctx.fillStyle = `rgba(${r},${g},${b},${0.2 + intensity * 0.8})`;
+                    ctx.fillRect(pad + d.x * cellW + 2, 20 + d.y * cellH + 2, cellW - 4, cellH - 4);
+
+                    ctx.fillStyle = intensity > 0.5 ? "#fff" : "#8892a8";
+                    ctx.font = "bold 16px JetBrains Mono";
+                    ctx.textAlign = "center";
+                    ctx.fillText(d.v, pad + d.x * cellW + cellW / 2, 20 + d.y * cellH + cellH / 2 + 6);
+                });
+
+                ctx.fillStyle = "#5a6380";
+                ctx.font = "11px Inter";
+                ctx.textAlign = "center";
+                labels.forEach((l, i) => {
+                    ctx.fillText(l, pad + i * cellW + cellW / 2, H - 8);
+                    ctx.save();
+                    ctx.translate(14, 20 + i * cellH + cellH / 2);
+                    ctx.rotate(-Math.PI / 2);
+                    ctx.fillText(l, 0, 0);
+                    ctx.restore();
+                });
+
+                ctx.fillText("Predicted", W / 2, H - 0);
+                ctx.save();
+                ctx.translate(10, H / 2 - 20);
+                ctx.rotate(-Math.PI / 2);
+                ctx.fillText("Actual", 0, 0);
+                ctx.restore();
+            }, [data]);
+
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        function ROCChart({ data }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !data) return;
+                if (chartRef.current) chartRef.current.destroy();
+
+                chartRef.current = new Chart(canvasRef.current, {
+                    type: "line",
+                    data: {
+                        datasets: [
+                            {
+                                label: `ROC (AUC = ${data.auc?.toFixed(3)})`,
+                                data: data.fpr?.map((f, i) => ({ x: f, y: data.tpr[i] })) ?? [],
+                                borderColor: "#8b5cf6",
+                                backgroundColor: "rgba(139,92,246,0.15)",
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: 0,
+                                borderWidth: 2.5,
+                            },
+                            {
+                                label: "Random",
+                                data: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+                                borderColor: "rgba(90,99,128,0.5)",
+                                borderDash: [5, 5],
+                                pointRadius: 0,
+                                borderWidth: 1.5,
+                                fill: false,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: "#8892a8", font: { size: 10 } } } },
+                        scales: {
+                            x: { title: { display: true, text: "FPR", color: "#5a6380" }, min: 0, max: 1, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" } },
+                            y: { title: { display: true, text: "TPR", color: "#5a6380" }, min: 0, max: 1, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" } }
+                        }
+                    }
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [data]);
+
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+</body>
+</html>
