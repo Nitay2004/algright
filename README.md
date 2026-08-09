@@ -183,16 +183,44 @@ python run_pipeline.py --mode offline
 
 ### Run Mode 2: DATASET (Needs internet, first time only)
 
-This downloads real brain signal data from PhysioNet database.
+This downloads real brain signal data and runs the full pipeline on it.
 
 ```
-python run_pipeline.py --mode dataset
+python run_pipeline.py --mode dataset                     # default = openbmi
+python run_pipeline.py --mode dataset --dataset physionet # sirf physionet
+python run_pipeline.py --mode dataset --dataset openbmi   # sirf openbmi
+python run_pipeline.py --mode dataset --dataset bci2a     # sirf bci2a
 ```
 
-**First run will download ~500MB of data** from PhysioNet. Subsequent runs use cached data.
+**First run downloads the data** for the selected dataset. Subsequent runs use the cached data (in `C:\Users\<you>\mne_data`).
+
+**Multi-dataset mode** (run several back-to-back, a summary table is printed at the end):
+
+```
+python run_pipeline.py --mode dataset --dataset openbmi bci2a   # dono
+python run_pipeline.py --mode dataset --dataset all             # sab kuch
+```
+
+**Supported datasets (name -> what it is):**
+
+| Name | Dataset | Trials/Subj | Notes |
+|------|---------|-------------|-------|
+| `openbmi` | OpenBMI Lee2019 (default) | 54 | Binary left/right MI, best accuracy (~82%) |
+| `bci2a` | BCI Competition IV 2a | 9 | 22ch, 250 Hz (~74%) |
+| `weibo2014` | Weibo 2014 MI | 10 | (~65%) |
+| `physionet` | PhysioNet Motor Imagery | 109 | 64ch, 160 Hz (~54%) |
+| `bci2b` | BCI Competition IV 2b | 9 | 3ch, 250 Hz |
+| `bci4` | BCI Competition IV 4 | 9 | Motor imagery |
+| `ofner2017` | Ofner et al. 2017 | 15 | 61ch, 3-class MI |
+| `zhou2016` | Zhou et al. 2016 | 4 | 30ch |
+| `cho2017` | Cho et al. 2017 | 52 | 64ch, 512 Hz |
+| `shin2017` | Shin et al. 2017 A | 29 | 62ch |
+| `alexmi` | Alex Motor Imagery | 40 | 64ch, 512 Hz |
+| `grossewentrup2009` | Grosse-Wentrup 2009 | 10 | 64ch |
+| `sosulski2019` | Sosulski et al. 2019 | 5 | 256ch |
 
 **What happens:**
-- Downloads PhysioNet Motor Imagery dataset (subjects 1, 2, 3)
+- Downloads the selected motor-imagery dataset (subjects 1, 2, 3 by default; add `--subjects 1 2 3 4 5 ...` for more)
 - Processes real EEG signals through the full pipeline
 - Same outputs as offline mode
 

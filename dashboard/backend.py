@@ -129,11 +129,11 @@ def run_pipeline_thread(config, mode):
 def _run_offline(config):
     # Phase 1: Generate Data
     emit_update("pipeline_status", {"phase": "Phase 1: Generating synthetic EEG data...", "progress": 5})
+    labels = np.random.RandomState(42).randint(0, 2, size=200)
     clean_data = generate_eeg_trials(
         n_trials=200, n_channels=config.n_channels,
-        n_samples=config.epoch_samples, sfreq=config.sfreq
+        n_samples=config.epoch_samples, sfreq=config.sfreq, labels=labels
     )
-    labels = np.random.randint(0, 2, size=clean_data.shape[0])
     noisy_data = inject_noise(clean_data, noise_type="all",
                               snr_db=config.noise_snr_db, sfreq=config.sfreq)
 
@@ -205,7 +205,7 @@ def _run_offline(config):
 
     # Phase 5: Classification
     emit_update("pipeline_status", {"phase": "Phase 5: CSP + SVM classification...", "progress": 70})
-    n_comp = min(config.csp_n_components, train_denoised.shape[1] // 2, len(np.unique(train_labels)))
+    n_comp = min(config.csp_n_components, train_denoised.shape[1] // 2)
     train_features, csp = extract_csp_features(train_denoised, train_labels, n_comp)
     test_features = csp.transform(test_denoised)
 
@@ -391,7 +391,7 @@ def _run_dataset(config):
     # Classification
     emit_update("pipeline_status", {"phase": "CSP + SVM Classification...", "progress": 65})
     n_classes = len(np.unique(y_train))
-    n_comp = min(config.csp_n_components, X_train_denoised.shape[1] // 2, n_classes)
+    n_comp = min(config.csp_n_components, X_train_denoised.shape[1] // 2)
     if n_comp < 1:
         n_comp = 1
 
@@ -507,7 +507,7 @@ def _run_synthetic_stream(config):
     denoiser = OnlineDenoiser(dae_model)
     train_denoised = np.nan_to_num(denoiser.denoise_batch(train_adapted), nan=0.0)
 
-    n_comp = min(config.csp_n_components, train_denoised.shape[1] // 2, 2)
+    n_comp = min(config.csp_n_components, train_denoised.shape[1] // 2)
     if n_comp < 1:
         n_comp = 1
     train_features, csp = extract_csp_features(train_denoised, labels[:n_train], n_comp)

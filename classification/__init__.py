@@ -1,2 +1,2 @@
-from .feature_extraction import extract_csp_features
-from .classifier import EEGClassifier
+from .feature_extraction import extract_csp_features, FBCSP
+from .classifier import EEGClassifier, train_best_classifier

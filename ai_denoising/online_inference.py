@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import torch
 from .model import DenoisingAutoencoder
@@ -95,7 +96,9 @@ class OnlineDenoiser:
             clean_target: ndarray (n_channels, n_samples) - ground truth
 
         Returns:
-            loss value
+            (loss value, parameter shift): loss is the MSE of the update
+            step; parameter shift is the root-mean-square change in the
+            model weights induced by this update.
         """
         if self.model is None:
             raise RuntimeError("No model loaded.")
@@ -113,6 +116,8 @@ class OnlineDenoiser:
         x      = torch.FloatTensor(noisy_norm).unsqueeze(0).to(self.device)
         target = torch.FloatTensor(target_norm).unsqueeze(0).to(self.device)
 
+        before = [p.detach().clone() for p in self.model.parameters()]
+
         optimizer.zero_grad()
         y = self.model(x)
         loss = torch.nn.functional.mse_loss(y, target)
@@ -120,5 +125,14 @@ class OnlineDenoiser:
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         optimizer.step()
 
+        # Root-mean-square weight change across all parameters
+        total_numel = 0
+        total_sq = 0.0
+        for p, b in zip(self.model.parameters(), before):
+            delta = (p.detach() - b)
+            total_sq += float(delta.pow(2).sum().item())
+            total_numel += b.numel()
+        param_shift = math.sqrt(total_sq / total_numel) if total_numel > 0 else 0.0
+
         self.model.eval()
-        return loss.item()
+        return loss.item(), param_shift

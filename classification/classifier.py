@@ -22,7 +22,8 @@ class EEGClassifier:
         if self.method == "svm":
             self.model = SVC(kernel=kernel, probability=True, C=1.0, gamma='scale')
         elif self.method == "lda":
-            self.model = LinearDiscriminantAnalysis()
+            # Shrinkage regularized LDA: best-in-class for few-trials BCI data.
+            self.model = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
         else:
             raise ValueError(f"Unknown method: {method}. Use 'svm' or 'lda'.")
 
@@ -76,3 +77,23 @@ class EEGClassifier:
             raise RuntimeError("Model not trained.")
         scaled = self.scaler.transform(features)
         return self.model.score(scaled, labels)
+
+
+def train_best_classifier(features, labels, svm_kernel="rbf"):
+    """Train SVM and shrinkage LDA, return the model with higher CV accuracy.
+
+    On small BCI datasets the best classifier varies per subject/dataset, so
+    "auto" picks whichever generalizes better on the training folds.
+
+    Returns:
+        (classifier, best_cv_mean)
+    """
+    best_clf, best_cv = None, -1.0
+    for method in ("svm", "lda"):
+        clf = EEGClassifier(method=method, kernel=svm_kernel)
+        res = clf.train(features, labels)
+        if res["cv_mean"] > best_cv:
+            best_clf, best_cv = clf, res["cv_mean"]
+    print(f"[Classifier] Auto-selected {best_clf.method.upper()} "
+          f"(CV {best_cv:.4f})")
+    return best_clf, best_cv

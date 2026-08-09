@@ -39,9 +39,26 @@ class PipelineConfig:
     # CSP / Classification
     csp_n_components: int = 8
     svm_kernel: str = "rbf"
+    use_fbcsp: bool = True
+    fbcsp_bands: list = field(default_factory=lambda: [(8.0, 12.0), (13.0, 30.0)])
+    classifier: str = "auto"  # svm | lda | auto (CV-based best)
+
+    # Real-data preprocessing
+    use_car: bool = True
+    artifact_rejection_ratio: float = 4.0  # reject trials where a channel's
+    # peak-to-peak exceeds this multiple of its dataset-wide median
+
+    # Real-time inference chain: which stages run inside the live path.
+    # LMS is excluded by default: on real EEG there is no correlated noise
+    # reference (a secondary sensor), so LMS ANC degrades both latency
+    # (217 ms on real data) and classification. The DAE is included but can
+    # be disabled if it does not help a given dataset.
+    use_lms_in_real_time: bool = False
+    use_dae_in_real_time: bool = True
 
     # Evaluation
     noise_snr_db: float = -5.0
+    test_noise_shift_db: float = 3.0  # extra noise on test (session shift)
 
     # LSL Streaming
     lsl_stream_name: str = "SimulatedEEG"
@@ -49,5 +66,5 @@ class PipelineConfig:
     lsl_overlap: int = 0
 
     # Dataset
-    dataset_name: str = "PhysioNet-Motor-Imagery"
+    dataset_name: str = "physionet"  # physionet | bci2a | openbmi | weibo2014
     dataset_subjects: list = field(default_factory=lambda: [1, 2, 3])

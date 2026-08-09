@@ -103,6 +103,8 @@ class OnlineAdaptationEngine:
             "shift_detected": False,
             "low_confidence": False,
             "force_adapt": False,
+            "confidence": 1.0,
+            "param_shift": 0.0,
             "loss": None
         }
 
@@ -110,24 +112,25 @@ class OnlineAdaptationEngine:
         shift = self._detect_distribution_shift(epoch_data)
         result["shift_detected"] = shift
 
-        low_conf = False
+        conf = 1.0
         if features is not None:
-            conf = self._compute_confidence(features)
-            low_conf = conf < self.confidence_threshold
-            result["low_confidence"] = low_conf
+            conf = float(self._compute_confidence(features))
+            result["low_confidence"] = conf < self.confidence_threshold
+        result["confidence"] = conf
 
         force = (self.adaptation_count % self.adaptation_interval == 0)
         result["force_adapt"] = force
 
         # Decide whether to adapt
-        should_adapt = shift or low_conf or force
+        should_adapt = shift or result["low_confidence"] or force
 
         if should_adapt and clean_target is not None:
-            loss = self.denoiser.online_adapt_step(
+            loss, param_shift = self.denoiser.online_adapt_step(
                 epoch_data, clean_target, lr=self.online_lr
             )
             result["adapted"] = True
             result["loss"] = loss
+            result["param_shift"] = param_shift
             self.total_adaptations += 1
 
         return result

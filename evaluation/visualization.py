@@ -13,6 +13,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve,
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 import os
+import datetime
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -49,8 +50,17 @@ def ensure_output_dir(output_dir="results"):
     return output_dir
 
 
+def robust_ylim(*signals, lo_pct=1.0, hi_pct=99.0, pad=0.1):
+    """Robust shared y-limits across signals (ignores extreme outliers)."""
+    vals = np.concatenate([np.asarray(s).ravel() for s in signals])
+    lo, hi = np.percentile(vals, [lo_pct, hi_pct])
+    span = max(hi - lo, 1e-12)
+    return (lo - pad * span, hi + pad * span)
+
+
 def fig1_raw_eeg_comparison(X_noisy, X_clean, X_denoised, sfreq,
-                             channel_idx=0, trial_idx=0, output_dir="results"):
+                             channel_idx=0, trial_idx=0, output_dir="results",
+                             clean_label="Ground Truth (Clean)"):
     """Fig 1: Multi-stage EEG signal comparison - noisy vs clean vs denoised."""
     out = ensure_output_dir(output_dir)
     t_noisy = np.arange(X_noisy.shape[2]) / sfreq
@@ -73,11 +83,17 @@ def fig1_raw_eeg_comparison(X_noisy, X_clean, X_denoised, sfreq,
     axes[2].plot(t_clean, X_clean[trial_idx, channel_idx], color=COLORS["clean"], linewidth=0.6, alpha=0.85)
     axes[2].set_ylabel("Amplitude (\u00b5V)")
     axes[2].set_xlabel("Time (s)")
-    axes[2].set_title("(c) Ground Truth (Clean)")
+    axes[2].set_title(f"(c) {clean_label}")
     axes[2].fill_between(t_clean, X_clean[trial_idx, channel_idx], alpha=0.15, color=COLORS["clean"])
 
     for ax in axes:
         ax.set_xlim([0, t_noisy[-1]])
+
+    ylo, yhi = robust_ylim(
+        X_noisy[trial_idx, channel_idx], X_denoised[trial_idx, channel_idx],
+        X_clean[trial_idx, channel_idx])
+    for ax in axes:
+        ax.set_ylim([ylo, yhi])
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     path = os.path.join(out, "fig1_eeg_comparison.png")
@@ -88,7 +104,8 @@ def fig1_raw_eeg_comparison(X_noisy, X_clean, X_denoised, sfreq,
 
 
 def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
-                          sfreq, channel_idx=0, trial_idx=0, output_dir="results"):
+                          sfreq, channel_idx=0, trial_idx=0, output_dir="results",
+                          clean_label="Ground Truth (Clean)"):
     """Fig 2: Full pipeline stage progression."""
     out = ensure_output_dir(output_dir)
     stages = [
@@ -96,7 +113,7 @@ def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
         ("(b) Bandpass + Notch", X_pre, COLORS["primary"]),
         ("(c) LMS Adaptive Filter", X_adapted, COLORS["adapted"]),
         ("(d) DAE Neural Denoiser", X_denoised, COLORS["denoised"]),
-        ("(e) Ground Truth", X_clean, COLORS["clean"]),
+        (f"(e) {clean_label}", X_clean, COLORS["clean"]),
     ]
 
     fig, axes = plt.subplots(5, 1, figsize=(14, 12), sharex=True)
@@ -113,6 +130,10 @@ def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
         axes[i].set_title(title, fontsize=10, loc="left", fontweight="bold")
         axes[i].set_xlim([0, t[-1]])
 
+    ylo, yhi = robust_ylim(*[st[1][trial_idx, channel_idx] for st in stages])
+    for ax in axes:
+        ax.set_ylim([ylo, yhi])
+
     axes[-1].set_xlabel("Time (s)")
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     path = os.path.join(out, "fig2_pipeline_stages.png")
@@ -123,8 +144,13 @@ def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
 
 
 def fig3_multi_channel_heatmap(X_data, title_str, sfreq, output_dir="results",
-                                 n_channels=None, trial_idx=0):
-    """Fig 3: Multi-channel heatmap (topoplot-style)."""
+                                 n_channels=None, trial_idx=0, vmin=None, vmax=None):
+    """Fig 3: Multi-channel heatmap (topoplot-style).
+
+    Args:
+        vmin/vmax: shared color-scale limits. When provided, all heatmaps in a
+            comparison use the SAME scale so they can be compared directly.
+    """
     out = ensure_output_dir(output_dir)
     if n_channels is None:
         n_channels = min(X_data.shape[1], 20)
@@ -133,9 +159,13 @@ def fig3_multi_channel_heatmap(X_data, title_str, sfreq, output_dir="results",
     data_slice = X_data[trial_idx, :n_channels, :]
     t = np.arange(data_slice.shape[1]) / sfreq
 
+    if vmin is None or vmax is None:
+        vmin = -np.std(data_slice) * 2
+        vmax = np.std(data_slice) * 2
+
     im = ax.imshow(data_slice, aspect="auto", cmap="RdBu_r",
                    extent=[t[0], t[-1], n_channels, 0],
-                   vmin=-np.std(data_slice) * 2, vmax=np.std(data_slice) * 2)
+                   vmin=vmin, vmax=vmax)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Channel Index")
     ax.set_title(f"Figure 3: {title_str} - Multi-Channel Heatmap", fontweight="bold")
@@ -153,7 +183,8 @@ def fig3_multi_channel_heatmap(X_data, title_str, sfreq, output_dir="results",
 
 
 def fig4_frequency_spectrum(X_noisy, X_denoised, X_clean, sfreq,
-                              channel_idx=0, output_dir="results"):
+                              channel_idx=0, output_dir="results",
+                              clean_label="Clean"):
     """Fig 4: Power Spectral Density comparison."""
     out = ensure_output_dir(output_dir)
 
@@ -178,9 +209,9 @@ def fig4_frequency_spectrum(X_noisy, X_denoised, X_clean, sfreq,
 
     axes[0].semilogy(f, psd_noisy, color=COLORS["noisy"], linewidth=1.2, label="Noisy", alpha=0.8)
     axes[0].semilogy(f, psd_denoised, color=COLORS["denoised"], linewidth=1.2, label="Denoised", alpha=0.8)
-    axes[0].semilogy(f, psd_clean, color=COLORS["clean"], linewidth=1.2, label="Clean", linestyle="--", alpha=0.8)
+    axes[0].semilogy(f, psd_clean, color=COLORS["clean"], linewidth=1.2, label=clean_label, linestyle="--", alpha=0.8)
     axes[0].set_xlabel("Frequency (Hz)")
-    axes[0].set_ylabel("PSD (V\u00b2/Hz)")
+    axes[0].set_ylabel("PSD (\u00b5V\u00b2/Hz)")
     axes[0].set_title("(a) PSD Comparison")
     axes[0].legend(framealpha=0.9)
     axes[0].set_xlim([0, 60])
@@ -203,10 +234,10 @@ def fig4_frequency_spectrum(X_noisy, X_denoised, X_clean, sfreq,
     width = 0.25
     axes[1].bar(x_pos - width, band_power_noisy, width, color=COLORS["noisy"], label="Noisy", alpha=0.8)
     axes[1].bar(x_pos, band_power_denoised, width, color=COLORS["denoised"], label="Denoised", alpha=0.8)
-    axes[1].bar(x_pos + width, band_power_clean, width, color=COLORS["clean"], label="Clean", alpha=0.8)
+    axes[1].bar(x_pos + width, band_power_clean, width, color=COLORS["clean"], label=clean_label, alpha=0.8)
     axes[1].set_xticks(x_pos)
     axes[1].set_xticklabels(band_names)
-    axes[1].set_ylabel("Band Power (V\u00b2)")
+    axes[1].set_ylabel("Band Power (\u00b5V\u00b2)")
     axes[1].set_title("(b) Band Power Distribution")
     axes[1].legend(framealpha=0.9)
     axes[1].set_yscale("log")
@@ -219,7 +250,7 @@ def fig4_frequency_spectrum(X_noisy, X_denoised, X_clean, sfreq,
     return path
 
 
-def fig5_dae_training(losses, output_dir="results"):
+def fig5_dae_training(losses, val_losses=None, output_dir="results"):
     """Fig 5: DAE training convergence curve."""
     out = ensure_output_dir(output_dir)
 
@@ -229,6 +260,11 @@ def fig5_dae_training(losses, output_dir="results"):
     ax.plot(epochs, losses, color=COLORS["primary"], linewidth=2, marker="o",
             markersize=4, markerfacecolor=COLORS["accent"], markeredgecolor="white",
             markeredgewidth=0.8, label="Training Loss")
+
+    if val_losses is not None and len(val_losses) == len(losses):
+        ax.plot(epochs, val_losses, color=COLORS["highlight"], linewidth=2,
+                marker="s", markersize=4, markerfacecolor=COLORS["secondary"],
+                markeredgecolor="white", markeredgewidth=0.8, label="Validation Loss")
 
     min_loss_idx = np.argmin(losses)
     ax.axvline(x=min_loss_idx + 1, color=COLORS["highlight"], linestyle="--",
@@ -357,48 +393,70 @@ def fig8_roc_curve(y_true, y_scores, output_dir="results"):
 
 
 def fig9_latency_benchmark(latency_stats, output_dir="results"):
-    """Fig 9: Inference latency visualization."""
+    """Fig 9: Real inference latency per pipeline stage (measured, not estimated)."""
     out = ensure_output_dir(output_dir)
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     fig.suptitle("Figure 9: Real-Time Inference Latency", fontweight="bold", y=1.02)
 
-    mean_ms = latency_stats["mean_ms"]
-    std_ms = latency_stats["std_ms"]
+    breakdown = latency_stats.get("breakdown", {})
+    runs = latency_stats.get("runs_ms", None)
 
-    categories = ["LMS\nAdaptive", "DAE\nInference", "CSP\nTransform", "SVM\nPredict", "Total\nPipeline"]
-    lat_lms = mean_ms * 0.3
-    lat_dae = mean_ms * 0.4
-    lat_csp = mean_ms * 0.15
-    lat_svm = mean_ms * 0.1
-    lat_total = lat_lms + lat_dae + lat_csp + lat_svm
-    latencies = [lat_lms, lat_dae, lat_csp, lat_svm, lat_total]
-    bar_colors = [COLORS["adapted"], COLORS["denoised"], COLORS["secondary"], COLORS["accent"], COLORS["primary"]]
+    # Panel (a): real measured per-stage breakdown
+    stage_labels = {
+        "preprocessing": "Bandpass+Notch",
+        "lms": "LMS\nAdaptive",
+        "dae": "DAE\nInference",
+        "csp": "CSP\nTransform",
+        "svm": "SVM\nPredict",
+    }
+    categories = []
+    latencies = []
+    for key in ["preprocessing", "lms", "dae", "csp", "svm"]:
+        if key in breakdown and breakdown[key] is not None:
+            categories.append(stage_labels.get(key, key))
+            latencies.append(breakdown[key])
+    if "total" in breakdown and breakdown["total"] is not None:
+        categories.append("Total\nPipeline")
+        latencies.append(breakdown["total"])
 
-    bars = axes[0].bar(categories, latencies, color=bar_colors, width=0.6, edgecolor="white", linewidth=1.5)
-    axes[0].set_ylabel("Latency (ms)")
-    axes[0].set_title("(a) Pipeline Component Latency")
-    for bar, val in zip(bars, latencies):
-        axes[0].text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
-                     f"{val:.2f} ms", ha="center", fontweight="bold", fontsize=9)
-    axes[0].axhline(y=100, color=COLORS["highlight"], linestyle="--", linewidth=1.5,
-                     label="100 ms Real-Time Threshold")
-    axes[0].legend(framealpha=0.9)
+    if categories:
+        bar_colors = [COLORS["adapted"], COLORS["denoised"], COLORS["secondary"],
+                      COLORS["accent"], COLORS["primary"], COLORS["highlight"]]
+        bars = axes[0].bar(categories, latencies, color=bar_colors[:len(categories)],
+                           width=0.6, edgecolor="white", linewidth=1.5)
+        axes[0].set_ylabel("Latency (ms)")
+        axes[0].set_title("(a) Measured Per-Stage Latency")
+        for bar, val in zip(bars, latencies):
+            axes[0].text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
+                         f"{val:.2f} ms", ha="center", fontweight="bold", fontsize=9)
+        axes[0].axhline(y=100, color=COLORS["highlight"], linestyle="--", linewidth=1.5,
+                        label="100 ms Real-Time Threshold")
+        axes[0].legend(framealpha=0.9)
+    else:
+        axes[0].text(0.5, 0.5, "No measured latency breakdown available",
+                     ha="center", va="center", transform=axes[0].transAxes)
+        axes[0].axis("off")
 
-    n_runs = 20
-    mock_latencies = np.random.normal(mean_ms, std_ms, n_runs)
-    axes[1].plot(range(1, n_runs + 1), mock_latencies, color=COLORS["primary"],
-                 linewidth=1.5, marker="o", markersize=4, markerfacecolor=COLORS["accent"])
-    axes[1].axhline(y=mean_ms, color=COLORS["denoised"], linestyle="-",
-                     linewidth=1.5, label=f"Mean: {mean_ms:.2f} ms")
-    axes[1].fill_between(range(1, n_runs + 1), mean_ms - std_ms, mean_ms + std_ms,
-                          alpha=0.2, color=COLORS["denoised"], label=f"\u00b1{std_ms:.2f} ms")
-    axes[1].axhline(y=100, color=COLORS["highlight"], linestyle="--",
-                     linewidth=1.5, label="Real-Time Threshold")
-    axes[1].set_xlabel("Run #")
-    axes[1].set_ylabel("Latency (ms)")
-    axes[1].set_title("(b) Latency Over Multiple Runs")
-    axes[1].legend(framealpha=0.9)
+    # Panel (b): real per-run latencies (repeated DAE inference measurements)
+    if runs is not None and len(runs) > 1:
+        mean_ms = float(np.mean(runs))
+        std_ms = float(np.std(runs))
+        x = range(1, len(runs) + 1)
+        axes[1].plot(x, runs, color=COLORS["primary"], linewidth=1.5, marker="o",
+                     markersize=4, markerfacecolor=COLORS["accent"])
+        axes[1].axhline(y=mean_ms, color=COLORS["denoised"], linewidth=1.5,
+                        label=f"Mean: {mean_ms:.2f} ms")
+        axes[1].fill_between(x, mean_ms - std_ms, mean_ms + std_ms, alpha=0.2,
+                             color=COLORS["denoised"], label=f"\u00b1{std_ms:.2f} ms")
+        axes[1].set_xlabel("Run #")
+        axes[1].set_ylabel("Latency (ms)")
+        axes[1].set_title("(b) DAE Inference Over Repeated Runs")
+        axes[1].legend(framealpha=0.9)
+    else:
+        axes[1].text(0.5, 0.5, "No per-run measurements available",
+                     ha="center", va="center", transform=axes[1].transAxes)
+        axes[1].axis("off")
 
     plt.tight_layout()
     path = os.path.join(out, "fig9_latency_benchmark.png")
@@ -461,20 +519,29 @@ def fig10_latent_space(X_denoised, y_labels, output_dir="results"):
 
 
 def fig11_adaptation_curve(adaptation_data, output_dir="results"):
-    """Fig 11: Self-learning adaptation curve."""
+    """Fig 11: Self-learning adaptation curve.
+
+    Shows (a) model parameter shift, (b) classification confidence before
+    and after each adaptation, and (c) reconstruction MSE before/after each
+    adaptation to demonstrate that the feedback loop actually improves the
+    model on distribution-shifted inputs.
+    """
     out = ensure_output_dir(output_dir)
 
     n_epochs = len(adaptation_data)
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle("Figure 11: Online Self-Learning Adaptation", fontweight="bold", y=1.02)
 
     shifts = [d.get("shift", 0) for d in adaptation_data]
     confidences = [d.get("confidence", 0) for d in adaptation_data]
+    confidences_after = [d.get("confidence_after", 0) for d in adaptation_data]
+    mse_before = [d.get("mse_before", 0) for d in adaptation_data]
+    mse_after = [d.get("mse_after", 0) for d in adaptation_data]
     adapted_flags = [d.get("adapted", False) for d in adaptation_data]
+    adapted_x = [i + 1 for i, a in enumerate(adapted_flags) if a]
 
     axes[0].plot(range(1, n_epochs + 1), shifts, color=COLORS["primary"],
                  linewidth=1.5, marker="o", markersize=3)
-    adapted_x = [i + 1 for i, a in enumerate(adapted_flags) if a]
     adapted_y = [shifts[i] for i, a in enumerate(adapted_flags) if a]
     axes[0].scatter(adapted_x, adapted_y, color=COLORS["highlight"], s=60,
                     zorder=5, edgecolors="white", linewidths=1, label="Adaptation Triggered")
@@ -484,14 +551,30 @@ def fig11_adaptation_curve(adaptation_data, output_dir="results"):
     axes[0].legend(framealpha=0.9)
 
     axes[1].plot(range(1, n_epochs + 1), confidences, color=COLORS["accent"],
-                 linewidth=1.5, marker="s", markersize=3)
+                 linewidth=1.5, marker="s", markersize=3, label="Confidence (before)")
+    for i in adapted_x:
+        axes[1].plot([i - 0.2, i + 0.2],
+                     [confidences[i - 1], confidences_after[i - 1]],
+                     color=COLORS["highlight"], linewidth=2, zorder=5)
     axes[1].axhline(y=0.7, color=COLORS["highlight"], linestyle="--",
-                     linewidth=1.5, label="Confidence Threshold (0.7)")
+                    linewidth=1.5, label="Confidence Threshold (0.7)")
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("Classification Confidence")
-    axes[1].set_title("(b) Confidence Score Over Time")
-    axes[1].legend(framealpha=0.9)
+    axes[1].set_title("(b) Confidence Before/After Adaptation")
+    axes[1].legend(framealpha=0.9, loc="lower right")
     axes[1].set_ylim([0, 1.05])
+
+    axes[2].plot(range(1, n_epochs + 1), mse_before, color=COLORS["noisy"],
+                 linewidth=1.5, marker="o", markersize=3, label="MSE before update")
+    axes[2].plot(range(1, n_epochs + 1), mse_after, color=COLORS["denoised"],
+                 linewidth=1.5, marker="o", markersize=3, label="MSE after update")
+    for i in adapted_x:
+        axes[2].plot([i, i], [mse_before[i - 1], mse_after[i - 1]],
+                     color=COLORS["highlight"], linewidth=1.5, alpha=0.8)
+    axes[2].set_xlabel("Epoch")
+    axes[2].set_ylabel("Reconstruction MSE (\u00b5V\u00b2)")
+    axes[2].set_title("(c) Reconstruction Error Before/After Adaptation")
+    axes[2].legend(framealpha=0.9)
 
     plt.tight_layout()
     path = os.path.join(out, "fig11_adaptation_curve.png")
@@ -501,8 +584,14 @@ def fig11_adaptation_curve(adaptation_data, output_dir="results"):
     return path
 
 
-def fig12_architecture_diagram(output_dir="results"):
-    """Fig 12: Architecture summary figure."""
+def fig12_architecture_diagram(output_dir="results", latency=None, metrics=None):
+    """Fig 12: Architecture summary figure.
+
+    When ``latency`` (dict with mean_ms/breakdown) and ``metrics`` (dict from
+    evaluate_pipeline) are provided, the measured numbers are annotated on
+    the diagram so claims like "real-time" are backed by actual numbers
+    instead of unsupported labels.
+    """
     out = ensure_output_dir(output_dir)
 
     fig, ax = plt.subplots(figsize=(16, 8))
@@ -562,8 +651,23 @@ def fig12_architecture_diagram(output_dir="results"):
     ax.annotate("", xy=(11.75, 5.0), xytext=(11.75, 3.5),
                  arrowprops=dict(arrowstyle="-|>", color="gray", lw=2))
 
+    # --- Feedback loop: classifier confidence -> adaptation -> model update ---
+    # SVM/LDA output (right edge) -> Adaptation Engine (left edge)
+    ax.annotate("", xy=(10.0, 4.2), xytext=(9.0, 4.2),
+                 arrowprops=dict(arrowstyle="-|>", color=COLORS["highlight"],
+                                 lw=2, connectionstyle="arc3,rad=0.0"))
+    ax.text(9.5, 4.55, "prediction\nconfidence", ha="center", va="bottom",
+            fontsize=8, color=COLORS["highlight"], fontweight="bold")
+
+    # Adaptation Engine (top) -> DAE (bottom): model weight update
+    ax.annotate("", xy=(11.75, 6.5), xytext=(11.75, 5.0),
+                 arrowprops=dict(arrowstyle="-|>", color=COLORS["highlight"],
+                                 lw=2, connectionstyle="arc3,rad=0.0"))
+    ax.text(12.9, 5.75, "weight update", ha="center", va="center",
+            fontsize=8, color=COLORS["highlight"], fontweight="bold")
+
     tech_text = (
-        "Tech Stack:  Python 3.14  |  PyTorch  |  MNE-Python  |  MOABB  |  "
+        "Tech Stack:  Python  |  PyTorch  |  MNE-Python  |  MOABB  |  "
         "scikit-learn  |  Padasip  |  SciPy  |  Matplotlib"
     )
     ax.text(8, 1.5, tech_text, ha="center", va="center", fontsize=9,
@@ -572,13 +676,40 @@ def fig12_architecture_diagram(output_dir="results"):
                       edgecolor="gray", alpha=0.8))
 
     key_features = (
-        "Key Features:  Real-time (< 10ms)  |  Adaptive  |  Subject-independent  |  "
+        "Key Features:  Real-time processing  |  Adaptive  |  "
         "Self-learning  |  No hardware required (offline mode)"
     )
     ax.text(8, 0.7, key_features, ha="center", va="center", fontsize=9,
             style="italic", color="gray",
             bbox=dict(boxstyle="round,pad=0.5", facecolor="lightcyan",
                       edgecolor="gray", alpha=0.8))
+
+    # --- Measured results annotation (real numbers, not claims) ---
+    notes = []
+    if latency is not None and latency.get("mean_ms") is not None:
+        bd = latency.get("breakdown", {})
+        notes.append(
+            f"Measured latency: {latency['mean_ms']:.2f} ms "
+            f"(+/- {latency.get('std_ms', 0):.2f}) per 1-s epoch "
+            f"[pre {bd.get('preprocessing', 0):.1f} | LMS {bd.get('lms', 0):.1f} | "
+            f"DAE {bd.get('dae', 0):.1f} | CSP {bd.get('csp', 0):.1f} | "
+            f"SVM {bd.get('svm', 0):.1f} ms]"
+        )
+    if metrics is not None:
+        snr = metrics.get("snr_after")
+        if snr is not None:
+            notes.append(
+                f"Measured denoising: SNR {metrics.get('snr_before', 0):.1f} -> "
+                f"{snr:.1f} dB | Corr {metrics.get('corr_noisy', 0):.2f} -> "
+                f"{metrics.get('corr_denoised', 0):.2f} | "
+                f"MSE {metrics.get('mse_noisy', 0):.0f} -> "
+                f"{metrics.get('mse_denoised', 0):.0f}"
+            )
+    for i, note in enumerate(notes):
+        ax.text(8, 2.2 - i * 0.55, note, ha="center", va="center", fontsize=8.5,
+                style="italic", color="#2c3e50",
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="#eafaf1",
+                          edgecolor="#1abc9c", alpha=0.9))
 
     plt.tight_layout()
     path = os.path.join(out, "fig12_architecture.png")
@@ -601,11 +732,13 @@ def fig13_before_after_channel(X_noisy, X_denoised, sfreq, n_show=6,
                  fontweight="bold", y=1.01)
 
     for ch in range(n_channels):
+        ylo, yhi = robust_ylim(X_noisy[trial_idx, ch], X_denoised[trial_idx, ch])
         axes[ch, 0].plot(t, X_noisy[trial_idx, ch], color=COLORS["noisy"],
                          linewidth=0.4, alpha=0.8)
         axes[ch, 0].fill_between(t, X_noisy[trial_idx, ch], alpha=0.1,
                                   color=COLORS["noisy"])
         axes[ch, 0].set_ylabel(f"Ch {ch+1}", fontsize=8, rotation=0, labelpad=35)
+        axes[ch, 0].set_ylim([ylo, yhi])
         if ch == 0:
             axes[ch, 0].set_title("Noisy Input", fontweight="bold")
 
@@ -613,6 +746,7 @@ def fig13_before_after_channel(X_noisy, X_denoised, sfreq, n_show=6,
                          linewidth=0.4, alpha=0.8)
         axes[ch, 1].fill_between(t, X_denoised[trial_idx, ch], alpha=0.1,
                                   color=COLORS["denoised"])
+        axes[ch, 1].set_ylim([ylo, yhi])
         if ch == 0:
             axes[ch, 1].set_title("DAE Denoised", fontweight="bold")
 
@@ -627,16 +761,32 @@ def fig13_before_after_channel(X_noisy, X_denoised, sfreq, n_show=6,
     return path
 
 
-def generate_all_figures(pipeline_data, output_dir="results"):
+def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
     """Master function: generate all figures from pipeline run data.
 
     Args:
         pipeline_data: dict with all required data arrays and metrics.
         output_dir: folder to save figures.
+        mode: execution mode label (e.g. "offline", "dataset", "streaming").
+            Appended to the timestamped run folder name.
     """
     print("\n" + "=" * 60)
     print("  GENERATING PUBLICATION FIGURES")
     print("=" * 60)
+
+    # Save each run's figures into a timestamped sub-folder so previous runs
+    # are never overwritten. Old run folders are preserved alongside. The
+    # mode label is appended so offline vs dataset runs are identifiable.
+    run_dir = os.path.join(
+        output_dir, "run_{}_{}".format(
+            datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), mode))
+    os.makedirs(run_dir, exist_ok=True)
+
+    # Real EEG has no clean ground truth: in dataset mode the "reference" is
+    # the preprocessed (bandpass+notch) signal, not a true clean signal.
+    clean_label = ("Reference (Preprocessed)"
+                   if mode == "dataset" else "Ground Truth (Clean)")
+    output_dir = run_dir
 
     paths = []
 
@@ -649,7 +799,7 @@ def generate_all_figures(pipeline_data, output_dir="results"):
         paths.append(fig1_raw_eeg_comparison(
             pipeline_data["X_noisy"], pipeline_data["X_clean"],
             pipeline_data["X_denoised"], pipeline_data["sfreq"],
-            output_dir=output_dir
+            output_dir=output_dir, clean_label=clean_label
         ))
 
     if all(k in pipeline_data for k in ["X_noisy", "X_pre", "X_adapted", "X_denoised", "X_clean"]):
@@ -657,33 +807,54 @@ def generate_all_figures(pipeline_data, output_dir="results"):
             pipeline_data["X_noisy"], pipeline_data["X_pre"],
             pipeline_data["X_adapted"], pipeline_data["X_denoised"],
             pipeline_data["X_clean"], pipeline_data["sfreq"],
-            output_dir=output_dir
+            output_dir=output_dir, clean_label=clean_label
         ))
 
     if "X_denoised" in pipeline_data:
         n_ch = min(pipeline_data["X_denoised"].shape[1], 20)
+        trial_idx = 0
+
+        # Shared color scale so noisy vs denoised heatmaps are comparable
+        shared_vmin, shared_vmax = None, None
+        if "X_noisy" in pipeline_data:
+            noisy_slice = pipeline_data["X_noisy"][trial_idx, :n_ch, :]
+            denoised_slice = pipeline_data["X_denoised"][trial_idx, :n_ch, :]
+            combined = np.concatenate([noisy_slice.ravel(), denoised_slice.ravel()])
+            std = np.std(combined)
+            shared_vmin, shared_vmax = -2 * std, 2 * std
+
         paths.append(fig3_multi_channel_heatmap(
             pipeline_data["X_denoised"], "Denoised Signal",
-            pipeline_data["sfreq"], output_dir=output_dir, n_channels=n_ch
+            pipeline_data["sfreq"], output_dir=output_dir, n_channels=n_ch,
+            vmin=shared_vmin, vmax=shared_vmax
         ))
         if "X_noisy" in pipeline_data:
             paths.append(fig3_multi_channel_heatmap(
                 pipeline_data["X_noisy"], "Noisy Input",
-                pipeline_data["sfreq"], output_dir=output_dir, n_channels=n_ch
+                pipeline_data["sfreq"], output_dir=output_dir, n_channels=n_ch,
+                vmin=shared_vmin, vmax=shared_vmax
             ))
 
     if all(k in pipeline_data for k in ["X_noisy", "X_denoised", "X_clean"]):
         paths.append(fig4_frequency_spectrum(
             pipeline_data["X_noisy"], pipeline_data["X_denoised"],
             pipeline_data["X_clean"], pipeline_data["sfreq"],
-            output_dir=output_dir
+            output_dir=output_dir, clean_label=clean_label
         ))
 
     if "losses" in pipeline_data:
-        paths.append(fig5_dae_training(pipeline_data["losses"], output_dir=output_dir))
+        paths.append(fig5_dae_training(
+            pipeline_data["losses"],
+            val_losses=pipeline_data.get("val_losses"),
+            output_dir=output_dir
+        ))
 
     if "metrics" in pipeline_data:
-        paths.append(fig6_snr_comparison(pipeline_data["metrics"], output_dir=output_dir))
+        m = pipeline_data["metrics"]
+        if m.get("snr_after") is not None and m.get("snr_before") is not None:
+            paths.append(fig6_snr_comparison(m, output_dir=output_dir))
+        else:
+            print("  Skipped fig6 (SNR needs clean ground truth; not available on real data)")
 
     if "y_true" in pipeline_data and "y_pred" in pipeline_data:
         paths.append(fig7_confusion_matrix(
@@ -708,7 +879,11 @@ def generate_all_figures(pipeline_data, output_dir="results"):
             pipeline_data["adaptation_data"], output_dir=output_dir
         ))
 
-    paths.append(fig12_architecture_diagram(output_dir=output_dir))
+    paths.append(fig12_architecture_diagram(
+        latency=pipeline_data.get("latency"),
+        metrics=pipeline_data.get("metrics"),
+        output_dir=output_dir
+    ))
 
     if "X_noisy" in pipeline_data and "X_denoised" in pipeline_data:
         paths.append(fig13_before_after_channel(
