@@ -1,7 +1,22 @@
 import numpy as np
 import torch
+from torch import nn
 from torch.utils.data import Dataset, DataLoader
+from utils import get_device
 from .model import DenoisingAutoencoder
+
+
+class ClassificationHead(nn.Module):
+    """Global-average-pooled classifier on top of the DAE bottleneck latent."""
+
+    def __init__(self, latent_dim, n_classes):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(latent_dim, n_classes)
+
+    def forward(self, z):
+        z = self.pool(z).squeeze(-1)
+        return self.fc(z)
 
 
 class DenoisingDataset(Dataset):
@@ -52,9 +67,11 @@ class MaskedDenoisingDataset(Dataset):
         n_ch, n_s = x.shape
         n_masks = max(1, int(np.ceil(n_s * self.mask_ratio / self.mask_len)))
         for _ in range(n_masks):
-            ch = np.random.randint(0, n_ch)
+            # Occlude the SAME time window on ALL channels so the model must
+            # exploit cross-channel spatial structure (like real EEG artifacts),
+            # not single-channel temporal inpainting alone.
             start = np.random.randint(0, n_s - self.mask_len + 1)
-            x[ch, start:start + self.mask_len] = 0.0
+            x[:, start:start + self.mask_len] = 0.0
         return x, self.signal[idx]
 
 
@@ -160,7 +177,7 @@ def train_dae(clean_data, config=None, model=None, noise_level_db=-5.0, noisy_da
         from config import PipelineConfig
         config = PipelineConfig()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     print(f"[DAE-Train] Using device: {device}")
 
     # --- Step 1: build train/validation indices (shared by both schemes) ---
@@ -268,3 +285,84 @@ def train_dae(clean_data, config=None, model=None, noise_level_db=-5.0, noisy_da
     model.eval()
     print(f"[DAE-Train] Training complete. Final loss: {losses[-1]:.6f} | Final val loss: {val_losses[-1]:.6f}")
     return model, losses, val_losses
+
+
+def finetune_dae_classifier(model, X_input, X_target, y_labels, config=None,
+                            n_epochs=None, lambda_rec=None):
+    """Task-aware finetuning: reconstruction + classification multi-task loss.
+
+    After the reconstruction (teacher-distillation) pretraining, the DAE is
+    fine-tuned so the bottleneck latent is also class-discriminative:
+
+        L = lambda_rec * MSE(recon, target)
+          + (1 - lambda_rec) * CrossEntropy(head(pool(z)), y)
+
+    The classification objective keeps task-relevant information inside the
+    latent, preventing pure reconstruction from over-smoothing the features
+    the downstream CSP/SVM needs. Normalization matches ``train_dae``'s
+    supervised scheme (both input and target normalized by the input stats).
+
+    Args:
+        model: pretrained DenoisingAutoencoder
+        X_input: ndarray (n_trials, n_channels, n_samples) - noisy input
+        X_target: ndarray (n_trials, n_channels, n_samples) - teacher target
+        y_labels: ndarray (n_trials,) - trial labels
+        config: PipelineConfig instance
+        n_epochs: finetune epochs (defaults to config.dae_finetune_epochs)
+        lambda_rec: reconstruction weight (defaults to config.dae_lambda_rec)
+
+    Returns:
+        (fine-tuned model, classification head)
+    """
+    from torch.utils.data import TensorDataset
+
+    if config is None:
+        from config import PipelineConfig
+        config = PipelineConfig()
+
+    device = get_device()
+    n_epochs = n_epochs or config.dae_finetune_epochs
+    lam = lambda_rec if lambda_rec is not None else config.dae_lambda_rec
+
+    n_classes = len(np.unique(y_labels))
+    head = ClassificationHead(config.latent_dim, n_classes).to(device)
+
+    # Same normalization as train_dae's supervised teacher scheme.
+    noisy_norm, noisy_means, noisy_stds = normalize_trials(X_input)
+    clean_norm = (X_target - noisy_means) / noisy_stds
+
+    dataset = TensorDataset(
+        torch.FloatTensor(noisy_norm),
+        torch.FloatTensor(clean_norm),
+        torch.LongTensor(np.asarray(y_labels)),
+    )
+    loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
+
+    model = model.to(device)
+    optimizer = torch.optim.Adam(
+        list(model.parameters()) + list(head.parameters()),
+        lr=config.dae_finetune_lr, weight_decay=1e-5)
+    mse = nn.MSELoss()
+    ce = nn.CrossEntropyLoss()
+
+    model.train()
+    head.train()
+    for epoch in range(n_epochs):
+        epoch_loss = 0.0
+        for bx, bt, by in loader:
+            bx, bt, by = bx.to(device), bt.to(device), by.to(device)
+            optimizer.zero_grad()
+            recon = model(bx)
+            z = model.encode(bx)
+            logits = head(z)
+            loss = lam * mse(recon, bt) + (1.0 - lam) * ce(logits, by)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            epoch_loss += loss.item() * bx.shape[0]
+        print(f"  [DAE-Finetune] Epoch {epoch + 1}/{n_epochs} | "
+              f"Loss: {epoch_loss / len(dataset):.6f}")
+
+    model.eval()
+    head.eval()
+    return model, head

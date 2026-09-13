@@ -61,6 +61,17 @@ python --version
 ```
 You should see something like `Python 3.11.x`. If you see an error, Python is not added to PATH. Reinstall and check the box.
 
+**`python` command not working?** On some Windows setups, `python` points to the Microsoft Store shortcut (which just opens the Store / shows a "Python was not found" error) even though Python is actually installed. Try using `py` instead:
+```
+py --version
+```
+If `py --version` works, then use `py` everywhere instead of `python` in this guide, e.g.:
+```
+py run_pipeline.py --mode offline
+py -m venv venv
+py -m pip install -r requirements.txt
+```
+
 ---
 
 ### STEP 2: Download This Project
@@ -387,6 +398,14 @@ pip install -r requirements.txt --user
 
 ### "Python is not recognized as an internal or external command"
 Reinstall Python and make sure to check **"Add Python to PATH"** during installation.
+
+### "Python was not found; run without arguments to install from the Microsoft Store"
+This means `python` is hitting the Windows **App Execution Alias** (a Store shortcut) instead of a real Python. Python may actually be installed — just type `py` instead of `python` for every command in this guide:
+```
+py run_pipeline.py --mode dataset --dataset all
+py --version
+```
+You can also permanently fix it by disabling the aliases: **Settings → Apps → Advanced app settings → App execution aliases**, and turning off the **python.exe / python3.exe** entries.
 
 ---
 

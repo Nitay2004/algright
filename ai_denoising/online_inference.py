@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import torch
+from utils import get_device
 from .model import DenoisingAutoencoder
 from .trainer import normalize_trials, denormalize_trials
 
@@ -13,7 +14,7 @@ class OnlineDenoiser:
 
     def __init__(self, model=None, device=None):
         if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = get_device()
         else:
             self.device = device
 

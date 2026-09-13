@@ -565,8 +565,9 @@ def train_dae_stream(config, clean_data, noise_level_db, emit_fn, loss_collector
     from torch.utils.data import DataLoader
     from ai_denoising.trainer import DenoisingDataset, create_training_data
     from ai_denoising.model import DenoisingAutoencoder
+    from utils import get_device
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     noisy_data, target_data = create_training_data(clean_data, noise_level_db, config.sfreq)
     dataset = DenoisingDataset(target_data, noisy_data)
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)

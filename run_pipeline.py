@@ -7,6 +7,10 @@ Usage:
     python run_pipeline.py --mode streaming      # Run with LSL mock streaming
 """
 import argparse
+import datetime
+import json
+import time
+import traceback
 import numpy as np
 import sys
 import os
@@ -17,7 +21,8 @@ from config import PipelineConfig
 from synthetic import generate_eeg_trials, inject_noise
 from preprocessing import apply_bandpass, apply_notch, apply_car
 from adaptive_filter import AdaptiveFilter
-from ai_denoising import DenoisingAutoencoder, train_dae, OnlineDenoiser
+from ai_denoising import (DenoisingAutoencoder, train_dae, finetune_dae_classifier,
+                          OnlineDenoiser)
 from classification import (extract_csp_features, EEGClassifier, FBCSP,
                             train_best_classifier)
 from self_learning import OnlineAdaptationEngine
@@ -61,6 +66,91 @@ def clip_physiological(data, clip_amp):
     return np.clip(data, -clip_amp, clip_amp)
 
 
+class _TeeLogger:
+    """Duplicate stdout writes into both the terminal and a log file."""
+
+    def __init__(self, stream, log_file):
+        self._stream = stream
+        self._log = log_file
+
+    def write(self, text):
+        self._stream.write(text)
+        try:
+            self._log.write(text)
+            self._log.flush()
+        except ValueError:
+            pass
+        return len(text)
+
+    def flush(self):
+        self._stream.flush()
+        try:
+            self._log.flush()
+        except ValueError:
+            pass
+
+
+def make_run_dir(mode, label, base="results"):
+    """Create (once) the timestamped run folder shared by figures/log/metrics."""
+    name = "run_{}_{}".format(
+        datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), mode)
+    if label:
+        name = f"{name}_{label}"
+    run_dir = os.path.join(base, name)
+    os.makedirs(run_dir, exist_ok=True)
+    return run_dir
+
+
+def start_run_logging(run_dir):
+    """Mirror all print() output into <run_dir>/console.log."""
+    log_path = os.path.join(run_dir, "console.log")
+    fh = open(log_path, "w", encoding="utf-8")
+    sys.stdout = _TeeLogger(sys.stdout, fh)
+    print(f"[Log] Console output mirrored to: {os.path.abspath(log_path)}")
+    return fh
+
+
+def stop_run_logging(fh):
+    sys.stdout = sys.__stdout__
+    try:
+        fh.close()
+    except Exception:
+        pass
+
+
+def _jsonable(obj):
+    """Best-effort conversion of numpy containers/metrics to JSON types."""
+    if isinstance(obj, dict):
+        return {str(k): _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return _jsonable(obj.tolist())
+    if isinstance(obj, np.floating):
+        v = float(obj)
+        return v if np.isfinite(v) else None
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, float):
+        return obj if np.isfinite(obj) else None
+    if isinstance(obj, (str, int, bool)) or obj is None:
+        return obj
+    return str(obj)
+
+
+def save_metrics_json(run_dir, metrics, config=None):
+    payload = {
+        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+        "config": _jsonable(vars(config)) if config is not None else {},
+        "metrics": _jsonable(metrics),
+    }
+    path = os.path.join(run_dir, "metrics.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"[Metrics] Saved: {os.path.abspath(path)}")
+    return path
+
+
 def classify_stage(train_data, test_data, train_labels, test_labels, n_comp,
                    method="svm", kernel="rbf", use_fbcsp=False, sfreq=160.0):
     """Train CSP/FBCSP + classifier on one stage's data and return test acc."""
@@ -82,7 +172,7 @@ def classify_stage(train_data, test_data, train_labels, test_labels, n_comp,
 
 
 def measure_rt_stage_latency(config, preprocess_single, denoiser, csp, classifier,
-                             rt_input, raw_input, rt_features):
+                             rt_dae_input, raw_input, rt_features, rt_csp_input):
     """Measure per-stage latency for the REAL-TIME chain only.
 
     Stages excluded from the live path (e.g. LMS without a noise reference)
@@ -97,10 +187,10 @@ def measure_rt_stage_latency(config, preprocess_single, denoiser, csp, classifie
 
     dae_lat = None
     if config.use_dae_in_real_time:
-        dae_lat = measure_latency(denoiser.denoise_epoch, rt_input, n_runs=20)
+        dae_lat = measure_latency(denoiser.denoise_epoch, rt_dae_input, n_runs=20)
         breakdown["dae"] = dae_lat["mean_ms"]
 
-    lat_csp = measure_latency(lambda x: csp.transform(x), rt_input[None], n_runs=20)
+    lat_csp = measure_latency(lambda x: csp.transform(x), rt_csp_input[None], n_runs=20)
     lat_svm = measure_latency(lambda f: classifier.predict(f), rt_features[0:1], n_runs=20)
     breakdown["csp"] = lat_csp["mean_ms"]
     breakdown["svm"] = lat_svm["mean_ms"]
@@ -109,8 +199,10 @@ def measure_rt_stage_latency(config, preprocess_single, denoiser, csp, classifie
     return breakdown, dae_lat, lat_csp, lat_svm
 
 
-def run_offline_pipeline(config):
+def run_offline_pipeline(config, run_dir=None):
     """Run the full pipeline on synthetic data (no hardware needed)."""
+    if run_dir is None:
+        run_dir = make_run_dir("offline", "offline")
     print("\n" + "=" * 60)
     print("  PHASE 1: Data Generation")
     print("=" * 60)
@@ -159,7 +251,8 @@ def run_offline_pipeline(config):
 
     adapt_filter = AdaptiveFilter(
         n_channels=config.n_channels, method=config.filter_type,
-        filter_length=config.lms_length, mu=config.lms_mu
+        filter_length=config.lms_length, mu=config.lms_mu,
+        sfreq=config.sfreq, notch_freq=config.notch_freq
     )
 
     from ai_denoising import normalize_trials, denormalize_trials
@@ -354,7 +447,7 @@ def run_offline_pipeline(config):
     single_raw = test_pre[0]
     breakdown, dae_lat, lat_csp, lat_svm = measure_rt_stage_latency(
         config, preprocess_single, denoiser, csp, classifier,
-        single_epoch, single_raw, test_features_adapted)
+        test_pre[0], single_raw, test_features_adapted, single_epoch)
 
     if dae_lat is not None:
         lat = {
@@ -397,14 +490,19 @@ def run_offline_pipeline(config):
         "adaptation_data": adaptation_data,
     }
 
-    generate_all_figures(pipeline_data, output_dir="results", mode="offline")
+    generate_all_figures(pipeline_data, output_dir="results", mode="offline",
+                         label="offline", run_dir=run_dir)
 
+    save_metrics_json(run_dir, metrics, config)
     return metrics
 
 
-def run_dataset_pipeline(X, y, meta, config):
+def run_dataset_pipeline(X, y, meta, config, run_dir=None):
     """Run the full pipeline on real MOABB dataset."""
     import torch
+
+    if run_dir is None:
+        run_dir = make_run_dir("dataset", config.dataset_name)
 
     config.n_channels = X.shape[1]
     config.sfreq = meta["sfreq"]
@@ -454,7 +552,8 @@ def run_dataset_pipeline(X, y, meta, config):
 
     adapt_filter = AdaptiveFilter(
         n_channels=config.n_channels, method=config.filter_type,
-        filter_length=config.lms_length, mu=config.lms_mu
+        filter_length=config.lms_length, mu=config.lms_mu,
+        sfreq=config.sfreq, notch_freq=config.notch_freq
     )
 
     from ai_denoising import normalize_trials, denormalize_trials
@@ -484,19 +583,35 @@ def run_dataset_pipeline(X, y, meta, config):
     print("  PHASE 4: AI-Based Denoising (Training)")
     print("=" * 60)
 
-    # For dataset mode, we don't have true clean data. Use self-supervised
-    # masked reconstruction: random segments of the real (normalized) signal
-    # are occluded and the model must rebuild them from context. This learns
-    # the real signal structure instead of only removing synthetic noise that
-    # was added on top of an already-noisy target.
-    dae_model, losses, val_losses = train_dae(clean_data=X_train_pre, config=config, masked=True)
+    # On real data there is no clean ground truth, so the DAE is trained by
+    # TEACHER DISTILLATION: it learns to map the raw signal onto the classical
+    # bandpass+notch output (the strongest hand-engineered stage). The DAE
+    # therefore cannot be worse than classical preprocessing, and it generalizes
+    # the same cleaning to unseen trials. A guarded blend with the reference
+    # prevents any residual over-smoothing.
+    dae_model, losses, val_losses = train_dae(
+        clean_data=X_train_pre, config=config, noisy_data=X_train, masked=False)
+
+    if config.dae_finetune:
+        print("  [DAE-Finetune] Task-aware finetuning (reconstruction + classification)")
+        dae_model, _ = finetune_dae_classifier(
+            dae_model, X_train, X_train_pre, y_train, config=config)
+
     denoiser = OnlineDenoiser(dae_model)
 
-    X_train_denoised = denoiser.denoise_batch(X_train_pre)
-    X_test_denoised = denoiser.denoise_batch(X_test_pre)
+    alpha = config.dae_blend_alpha
+    clip_amp = float(np.percentile(np.abs(X_train_pre), 99.5)) * 2.0 + 1e-6
+
+    X_train_dae = np.nan_to_num(denoiser.denoise_batch(np.nan_to_num(X_train, nan=0.0)))
+    X_test_dae = np.nan_to_num(denoiser.denoise_batch(np.nan_to_num(X_test, nan=0.0)))
+
+    X_train_denoised = clip_physiological(
+        alpha * X_train_dae + (1.0 - alpha) * X_train_pre, clip_amp)
+    X_test_denoised = clip_physiological(
+        alpha * X_test_dae + (1.0 - alpha) * X_test_pre, clip_amp)
     X_train_denoised = np.nan_to_num(X_train_denoised, nan=0.0)
     X_test_denoised = np.nan_to_num(X_test_denoised, nan=0.0)
-    print(f"  Model trained | Final loss: {losses[-1]:.6f}")
+    print(f"  Model trained | Final loss: {losses[-1]:.6f} | Blend alpha: {alpha}")
 
     print("\n" + "=" * 60)
     print("  PHASE 5: Feature Extraction & Classification")
@@ -634,7 +749,7 @@ def run_dataset_pipeline(X, y, meta, config):
     single_raw = X_test_pre[0]
     breakdown, dae_lat, lat_csp, lat_svm = measure_rt_stage_latency(
         config, preprocess_single, denoiser, extractor, classifier,
-        single_epoch, single_raw, test_features)
+        np.nan_to_num(X_test[0], nan=0.0), single_raw, test_features, single_epoch)
 
     if dae_lat is not None:
         lat = {
@@ -674,8 +789,10 @@ def run_dataset_pipeline(X, y, meta, config):
         "adaptation_data": adaptation_data,
     }
 
-    generate_all_figures(pipeline_data, output_dir="results", mode="dataset")
+    generate_all_figures(pipeline_data, output_dir="results", mode="dataset",
+                         label=config.dataset_name, run_dir=run_dir)
 
+    save_metrics_json(run_dir, metrics, config)
     return metrics
 
 
@@ -758,7 +875,12 @@ def main():
             filter_type=args.filter,
             classifier=args.classifier,
         )
-        run_offline_pipeline(config)
+        _dir = make_run_dir("offline", "offline")
+        _fh = start_run_logging(_dir)
+        try:
+            run_offline_pipeline(config, run_dir=_dir)
+        finally:
+            stop_run_logging(_fh)
     elif args.mode == "streaming":
         config = PipelineConfig(
             n_channels=args.channels,
@@ -787,6 +909,7 @@ def main():
         from data_pipeline import fetch_eeg_dataset
 
         summary = {}
+        new_run_dirs = []
         for dset in datasets:
             config = PipelineConfig(
                 n_channels=args.channels,
@@ -801,18 +924,41 @@ def main():
             print(f"  DATASET: {dset} | subjects: {args.subjects}")
             print("=" * 62)
             print("[Dataset] Loading MOABB dataset...")
-            X, y, meta = fetch_eeg_dataset(dataset_name=dset,
-                                           subjects=config.dataset_subjects)
-            if X.shape[0] == 0:
-                print(f"  ERROR: No trials loaded from {dset}!")
+            X = y = meta = None
+            for attempt in range(1, 4):
+                try:
+                    X, y, meta = fetch_eeg_dataset(dataset_name=dset,
+                                                   subjects=config.dataset_subjects)
+                    break
+                except Exception as e:
+                    print(f"  [Load failed] {type(e).__name__}: {e}")
+                    if attempt < 3:
+                        wait = 10 * attempt
+                        print(f"  Retrying in {wait}s ... (attempt {attempt + 1}/3)")
+                        time.sleep(wait)
+            if X is None or getattr(X, "shape", [0])[0] == 0:
+                print(f"  ERROR: Skipping {dset} (download/load failed after retries)!")
+                summary[dset] = {"acc": None, "best_stage": "LOAD FAILED",
+                                 "trials": 0}
                 continue
             print(f"  Loaded: {X.shape} | sfreq={meta['sfreq']}")
-            metrics = run_dataset_pipeline(X, y, meta, config)
-            summary[dset] = {
-                "acc": metrics.get("classification_accuracy"),
-                "best_stage": metrics.get("best_stage"),
-                "trials": X.shape[0],
-            }
+            _dir = make_run_dir("dataset", dset)
+            new_run_dirs.append(_dir)
+            _fh = start_run_logging(_dir)
+            try:
+                metrics = run_dataset_pipeline(X, y, meta, config, run_dir=_dir)
+                summary[dset] = {
+                    "acc": metrics.get("classification_accuracy"),
+                    "best_stage": metrics.get("best_stage"),
+                    "trials": X.shape[0],
+                }
+            except Exception as e:
+                print(f"  ERROR: {dset} pipeline failed: {type(e).__name__}: {e}")
+                traceback.print_exc()
+                summary[dset] = {"acc": None, "best_stage": "PIPELINE FAILED",
+                                 "trials": X.shape[0]}
+            finally:
+                stop_run_logging(_fh)
 
         print("\n" + "=" * 62)
         print("  MULTI-DATASET SUMMARY")
@@ -821,6 +967,9 @@ def main():
             acc = f"{m['acc']:.4f}" if m["acc"] is not None else "N/A"
             print(f"  {dset:<12}: acc={acc} | best_stage={m['best_stage']} | trials={m['trials']}")
         print("=" * 62)
+
+        from make_results_excel import build_master_excel
+        build_master_excel(base="results", run_dirs=new_run_dirs)
 
 
 if __name__ == "__main__":

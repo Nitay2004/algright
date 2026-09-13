@@ -50,6 +50,13 @@ def ensure_output_dir(output_dir="results"):
     return output_dir
 
 
+def _fig_path(out, label, filename):
+    """Build figure path with an optional label prefix (e.g. dataset name)."""
+    if label:
+        return os.path.join(out, f"{label}_{filename}")
+    return os.path.join(out, filename)
+
+
 def robust_ylim(*signals, lo_pct=1.0, hi_pct=99.0, pad=0.1):
     """Robust shared y-limits across signals (ignores extreme outliers)."""
     vals = np.concatenate([np.asarray(s).ravel() for s in signals])
@@ -60,7 +67,7 @@ def robust_ylim(*signals, lo_pct=1.0, hi_pct=99.0, pad=0.1):
 
 def fig1_raw_eeg_comparison(X_noisy, X_clean, X_denoised, sfreq,
                              channel_idx=0, trial_idx=0, output_dir="results",
-                             clean_label="Ground Truth (Clean)"):
+                             clean_label="Ground Truth (Clean)", label=""):
     """Fig 1: Multi-stage EEG signal comparison - noisy vs clean vs denoised."""
     out = ensure_output_dir(output_dir)
     t_noisy = np.arange(X_noisy.shape[2]) / sfreq
@@ -96,7 +103,7 @@ def fig1_raw_eeg_comparison(X_noisy, X_clean, X_denoised, sfreq,
         ax.set_ylim([ylo, yhi])
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    path = os.path.join(out, "fig1_eeg_comparison.png")
+    path = _fig_path(out, label, "fig1_eeg_comparison.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
@@ -105,7 +112,7 @@ def fig1_raw_eeg_comparison(X_noisy, X_clean, X_denoised, sfreq,
 
 def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
                           sfreq, channel_idx=0, trial_idx=0, output_dir="results",
-                          clean_label="Ground Truth (Clean)"):
+                          clean_label="Ground Truth (Clean)", label=""):
     """Fig 2: Full pipeline stage progression."""
     out = ensure_output_dir(output_dir)
     stages = [
@@ -136,7 +143,7 @@ def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
 
     axes[-1].set_xlabel("Time (s)")
     plt.tight_layout(rect=[0, 0, 1, 0.97])
-    path = os.path.join(out, "fig2_pipeline_stages.png")
+    path = _fig_path(out, label, "fig2_pipeline_stages.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
@@ -144,7 +151,8 @@ def fig2_pipeline_stages(X_noisy, X_pre, X_adapted, X_denoised, X_clean,
 
 
 def fig3_multi_channel_heatmap(X_data, title_str, sfreq, output_dir="results",
-                                 n_channels=None, trial_idx=0, vmin=None, vmax=None):
+                                 n_channels=None, trial_idx=0, vmin=None, vmax=None,
+                                 label=""):
     """Fig 3: Multi-channel heatmap (topoplot-style).
 
     Args:
@@ -175,7 +183,7 @@ def fig3_multi_channel_heatmap(X_data, title_str, sfreq, output_dir="results",
     ax.set_yticklabels([f"Ch {i+1}" for i in range(n_channels)], fontsize=7)
 
     plt.tight_layout()
-    path = os.path.join(out, f"fig3_heatmap_{title_str.replace(' ', '_').replace(':', '')}.png")
+    path = _fig_path(out, label, f"fig3_heatmap_{title_str.replace(' ', '_').replace(':', '')}.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
@@ -184,7 +192,7 @@ def fig3_multi_channel_heatmap(X_data, title_str, sfreq, output_dir="results",
 
 def fig4_frequency_spectrum(X_noisy, X_denoised, X_clean, sfreq,
                               channel_idx=0, output_dir="results",
-                              clean_label="Clean"):
+                              clean_label="Clean", label=""):
     """Fig 4: Power Spectral Density comparison."""
     out = ensure_output_dir(output_dir)
 
@@ -243,14 +251,14 @@ def fig4_frequency_spectrum(X_noisy, X_denoised, X_clean, sfreq,
     axes[1].set_yscale("log")
 
     plt.tight_layout()
-    path = os.path.join(out, "fig4_frequency_spectrum.png")
+    path = _fig_path(out, label, "fig4_frequency_spectrum.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig5_dae_training(losses, val_losses=None, output_dir="results"):
+def fig5_dae_training(losses, val_losses=None, output_dir="results", label=""):
     """Fig 5: DAE training convergence curve."""
     out = ensure_output_dir(output_dir)
 
@@ -279,14 +287,14 @@ def fig5_dae_training(losses, val_losses=None, output_dir="results"):
     ax.set_yscale("log")
 
     plt.tight_layout()
-    path = os.path.join(out, "fig5_dae_training.png")
+    path = _fig_path(out, label, "fig5_dae_training.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig6_snr_comparison(metrics_dict, output_dir="results"):
+def fig6_snr_comparison(metrics_dict, output_dir="results", label=""):
     """Fig 6: SNR improvement visualization."""
     out = ensure_output_dir(output_dir)
 
@@ -327,14 +335,14 @@ def fig6_snr_comparison(metrics_dict, output_dir="results"):
                      f"{val:.4f}", ha="center", fontweight="bold", fontsize=11)
 
     plt.tight_layout()
-    path = os.path.join(out, "fig6_snr_comparison.png")
+    path = _fig_path(out, label, "fig6_snr_comparison.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig7_confusion_matrix(y_true, y_pred, output_dir="results"):
+def fig7_confusion_matrix(y_true, y_pred, output_dir="results", label=""):
     """Fig 7: Confusion matrix heatmap."""
     out = ensure_output_dir(output_dir)
 
@@ -346,14 +354,14 @@ def fig7_confusion_matrix(y_true, y_pred, output_dir="results"):
 
     ax.set_title("Figure 7: Classification Confusion Matrix", fontweight="bold")
     plt.tight_layout()
-    path = os.path.join(out, "fig7_confusion_matrix.png")
+    path = _fig_path(out, label, "fig7_confusion_matrix.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig8_roc_curve(y_true, y_scores, output_dir="results"):
+def fig8_roc_curve(y_true, y_scores, output_dir="results", label=""):
     """Fig 8: ROC curve with AUC."""
     out = ensure_output_dir(output_dir)
 
@@ -385,14 +393,14 @@ def fig8_roc_curve(y_true, y_scores, output_dir="results"):
     ax.set_ylim([-0.02, 1.02])
 
     plt.tight_layout()
-    path = os.path.join(out, "fig8_roc_curve.png")
+    path = _fig_path(out, label, "fig8_roc_curve.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig9_latency_benchmark(latency_stats, output_dir="results"):
+def fig9_latency_benchmark(latency_stats, output_dir="results", label=""):
     """Fig 9: Real inference latency per pipeline stage (measured, not estimated)."""
     out = ensure_output_dir(output_dir)
 
@@ -459,14 +467,14 @@ def fig9_latency_benchmark(latency_stats, output_dir="results"):
         axes[1].axis("off")
 
     plt.tight_layout()
-    path = os.path.join(out, "fig9_latency_benchmark.png")
+    path = _fig_path(out, label, "fig9_latency_benchmark.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig10_latent_space(X_denoised, y_labels, output_dir="results"):
+def fig10_latent_space(X_denoised, y_labels, output_dir="results", label=""):
     """Fig 10: Latent space visualization (t-SNE + PCA)."""
     out = ensure_output_dir(output_dir)
 
@@ -511,14 +519,14 @@ def fig10_latent_space(X_denoised, y_labels, output_dir="results"):
         axes[1].legend(framealpha=0.9)
 
     plt.tight_layout()
-    path = os.path.join(out, "fig10_latent_space.png")
+    path = _fig_path(out, label, "fig10_latent_space.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig11_adaptation_curve(adaptation_data, output_dir="results"):
+def fig11_adaptation_curve(adaptation_data, output_dir="results", label=""):
     """Fig 11: Self-learning adaptation curve.
 
     Shows (a) model parameter shift, (b) classification confidence before
@@ -577,14 +585,15 @@ def fig11_adaptation_curve(adaptation_data, output_dir="results"):
     axes[2].legend(framealpha=0.9)
 
     plt.tight_layout()
-    path = os.path.join(out, "fig11_adaptation_curve.png")
+    path = _fig_path(out, label, "fig11_adaptation_curve.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def fig12_architecture_diagram(output_dir="results", latency=None, metrics=None):
+def fig12_architecture_diagram(output_dir="results", latency=None, metrics=None,
+                               label=""):
     """Fig 12: Architecture summary figure.
 
     When ``latency`` (dict with mean_ms/breakdown) and ``metrics`` (dict from
@@ -712,7 +721,7 @@ def fig12_architecture_diagram(output_dir="results", latency=None, metrics=None)
                           edgecolor="#1abc9c", alpha=0.9))
 
     plt.tight_layout()
-    path = os.path.join(out, "fig12_architecture.png")
+    path = _fig_path(out, label, "fig12_architecture.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
@@ -720,7 +729,7 @@ def fig12_architecture_diagram(output_dir="results", latency=None, metrics=None)
 
 
 def fig13_before_after_channel(X_noisy, X_denoised, sfreq, n_show=6,
-                                 output_dir="results"):
+                                 output_dir="results", label=""):
     """Fig 13: Before vs After denoising across multiple channels."""
     out = ensure_output_dir(output_dir)
     n_channels = min(X_noisy.shape[1], n_show)
@@ -754,14 +763,15 @@ def fig13_before_after_channel(X_noisy, X_denoised, sfreq, n_show=6,
     axes[-1, 1].set_xlabel("Time (s)")
 
     plt.tight_layout()
-    path = os.path.join(out, "fig13_per_channel.png")
+    path = _fig_path(out, label, "fig13_per_channel.png")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
     return path
 
 
-def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
+def generate_all_figures(pipeline_data, output_dir="results", mode="run", label="",
+                         run_dir=None):
     """Master function: generate all figures from pipeline run data.
 
     Args:
@@ -769,6 +779,9 @@ def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
         output_dir: folder to save figures.
         mode: execution mode label (e.g. "offline", "dataset", "streaming").
             Appended to the timestamped run folder name.
+        label: optional name of the dataset (or other run tag). Appended to
+            the run folder name and prefixed to every figure filename so that
+            multi-dataset runs keep results separated and identifiable.
     """
     print("\n" + "=" * 60)
     print("  GENERATING PUBLICATION FIGURES")
@@ -776,11 +789,15 @@ def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
 
     # Save each run's figures into a timestamped sub-folder so previous runs
     # are never overwritten. Old run folders are preserved alongside. The
-    # mode label is appended so offline vs dataset runs are identifiable.
-    run_dir = os.path.join(
-        output_dir, "run_{}_{}".format(
-            datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), mode))
-    os.makedirs(run_dir, exist_ok=True)
+    # mode label is appended so offline vs dataset runs are identifiable, and
+    # the dataset label (if given) names the folder + figure files.
+    if run_dir is None:
+        run_name = "run_{}_{}".format(
+            datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), mode)
+        if label:
+            run_name = f"{run_name}_{label}"
+        run_dir = os.path.join(output_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
 
     # Real EEG has no clean ground truth: in dataset mode the "reference" is
     # the preprocessed (bandpass+notch) signal, not a true clean signal.
@@ -799,7 +816,7 @@ def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
         paths.append(fig1_raw_eeg_comparison(
             pipeline_data["X_noisy"], pipeline_data["X_clean"],
             pipeline_data["X_denoised"], pipeline_data["sfreq"],
-            output_dir=output_dir, clean_label=clean_label
+            output_dir=output_dir, clean_label=clean_label, label=label
         ))
 
     if all(k in pipeline_data for k in ["X_noisy", "X_pre", "X_adapted", "X_denoised", "X_clean"]):
@@ -807,7 +824,7 @@ def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
             pipeline_data["X_noisy"], pipeline_data["X_pre"],
             pipeline_data["X_adapted"], pipeline_data["X_denoised"],
             pipeline_data["X_clean"], pipeline_data["sfreq"],
-            output_dir=output_dir, clean_label=clean_label
+            output_dir=output_dir, clean_label=clean_label, label=label
         ))
 
     if "X_denoised" in pipeline_data:
@@ -826,69 +843,72 @@ def generate_all_figures(pipeline_data, output_dir="results", mode="run"):
         paths.append(fig3_multi_channel_heatmap(
             pipeline_data["X_denoised"], "Denoised Signal",
             pipeline_data["sfreq"], output_dir=output_dir, n_channels=n_ch,
-            vmin=shared_vmin, vmax=shared_vmax
+            vmin=shared_vmin, vmax=shared_vmax, label=label
         ))
         if "X_noisy" in pipeline_data:
             paths.append(fig3_multi_channel_heatmap(
                 pipeline_data["X_noisy"], "Noisy Input",
                 pipeline_data["sfreq"], output_dir=output_dir, n_channels=n_ch,
-                vmin=shared_vmin, vmax=shared_vmax
+                vmin=shared_vmin, vmax=shared_vmax, label=label
             ))
 
     if all(k in pipeline_data for k in ["X_noisy", "X_denoised", "X_clean"]):
         paths.append(fig4_frequency_spectrum(
             pipeline_data["X_noisy"], pipeline_data["X_denoised"],
             pipeline_data["X_clean"], pipeline_data["sfreq"],
-            output_dir=output_dir, clean_label=clean_label
+            output_dir=output_dir, clean_label=clean_label, label=label
         ))
 
     if "losses" in pipeline_data:
         paths.append(fig5_dae_training(
             pipeline_data["losses"],
             val_losses=pipeline_data.get("val_losses"),
-            output_dir=output_dir
+            output_dir=output_dir, label=label
         ))
 
     if "metrics" in pipeline_data:
         m = pipeline_data["metrics"]
         if m.get("snr_after") is not None and m.get("snr_before") is not None:
-            paths.append(fig6_snr_comparison(m, output_dir=output_dir))
+            paths.append(fig6_snr_comparison(m, output_dir=output_dir, label=label))
         else:
             print("  Skipped fig6 (SNR needs clean ground truth; not available on real data)")
 
     if "y_true" in pipeline_data and "y_pred" in pipeline_data:
         paths.append(fig7_confusion_matrix(
-            pipeline_data["y_true"], pipeline_data["y_pred"], output_dir=output_dir
+            pipeline_data["y_true"], pipeline_data["y_pred"], output_dir=output_dir,
+            label=label
         ))
 
     if "y_true" in pipeline_data and "y_scores" in pipeline_data:
         paths.append(fig8_roc_curve(
-            pipeline_data["y_true"], pipeline_data["y_scores"], output_dir=output_dir
+            pipeline_data["y_true"], pipeline_data["y_scores"], output_dir=output_dir,
+            label=label
         ))
 
     if "latency" in pipeline_data:
-        paths.append(fig9_latency_benchmark(pipeline_data["latency"], output_dir=output_dir))
+        paths.append(fig9_latency_benchmark(pipeline_data["latency"], output_dir=output_dir, label=label))
 
     if "X_denoised" in pipeline_data and "y_true" in pipeline_data:
         paths.append(fig10_latent_space(
-            pipeline_data["X_denoised"], pipeline_data["y_true"], output_dir=output_dir
+            pipeline_data["X_denoised"], pipeline_data["y_true"], output_dir=output_dir,
+            label=label
         ))
 
     if "adaptation_data" in pipeline_data:
         paths.append(fig11_adaptation_curve(
-            pipeline_data["adaptation_data"], output_dir=output_dir
+            pipeline_data["adaptation_data"], output_dir=output_dir, label=label
         ))
 
     paths.append(fig12_architecture_diagram(
         latency=pipeline_data.get("latency"),
         metrics=pipeline_data.get("metrics"),
-        output_dir=output_dir
+        output_dir=output_dir, label=label
     ))
 
     if "X_noisy" in pipeline_data and "X_denoised" in pipeline_data:
         paths.append(fig13_before_after_channel(
             pipeline_data["X_noisy"], pipeline_data["X_denoised"],
-            pipeline_data["sfreq"], output_dir=output_dir
+            pipeline_data["sfreq"], output_dir=output_dir, label=label
         ))
 
     print(f"\n  Total figures generated: {len(paths)}")

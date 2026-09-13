@@ -13,11 +13,11 @@ class PipelineConfig:
     # Notch filter
     notch_freq: float = 50.0
 
-    # Adaptive filter
+    # Adaptive filter (line-noise canceller: synthesized 50/60 Hz reference)
     filter_type: str = "lms"  # "lms" or "rls"
-    lms_length: int = 32
-    lms_mu: float = 0.01
-    rls_length: int = 32
+    lms_length: int = 2  # sin+cos reference taps
+    lms_mu: float = 0.02
+    rls_length: int = 2
     rls_lambda: float = 0.98
     rls_delta: float = 0.1
 
@@ -25,6 +25,16 @@ class PipelineConfig:
     n_channels: int = 64
     epoch_samples: int = 250  # 1 second
     latent_dim: int = 32
+
+    # Guarded blend for the DAE output: final = alpha*dae + (1-alpha)*ref
+    # (ref = bandpass+notch). Prevents over-smoothing on real data.
+    dae_blend_alpha: float = 0.8
+
+    # Task-aware finetuning: reconstruction + classification multi-task loss
+    dae_finetune: bool = True
+    dae_finetune_epochs: int = 10
+    dae_lambda_rec: float = 0.5  # weight on the reconstruction term
+    dae_finetune_lr: float = 1e-4
 
     # Training
     batch_size: int = 64
