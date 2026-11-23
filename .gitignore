@@ -8,3 +8,13 @@ venv/
 results/run_*/
 results/*.xlsx
 results/*.csv
+
+# UDA framework outputs (experimental results, not source code)
+results_uda/
+results.zip
+
+# Research paper PDF (not part of the source code)
+*.pdf
+
+# Ignore VS Code AI rules
+.github/instructions/codacy.instructions.md

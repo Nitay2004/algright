@@ -209,7 +209,7 @@ python run_pipeline.py --mode dataset --dataset bci2a     # sirf bci2a
 
 ```
 python run_pipeline.py --mode dataset --dataset openbmi bci2a   # dono
-python run_pipeline.py --mode dataset --dataset all             # sab kuch
+python run_pipeline.py --mode dataset --dataset all             # all datasets
 ```
 
 **Supported datasets (name -> what it is):**
@@ -452,3 +452,21 @@ This project is for research and educational purposes.
 ## Author
 
 **Nitay** - [GitHub: Nitay2004](https://github.com/Nitay2004)
+
+---
+
+## Paper-Aligned UDA Extension (`uda_cross_subject/`)
+
+A separate, self-contained framework implements the **Unsupervised Domain
+Adaptation** study from the reference paper: source-only, CORAL, MMD and DANN
+under a Leave-One-Subject-Out protocol, with unlabelled target adaptation,
+held-out target testing, alignment metrics and target-data availability
+analysis. The original pipeline above is unchanged.
+
+```
+py -m uda_cross_subject.run_uda --mode synthetic                 # quick check
+py -m uda_cross_subject.run_uda --mode dataset --dataset bci2a --subjects 1 2 3
+py -m uda_cross_subject.run_uda --mode dataset --dataset all --subjects 1 2 3  # every dataset
+```
+
+Full documentation: [`uda_cross_subject/README.md`](uda_cross_subject/README.md)
