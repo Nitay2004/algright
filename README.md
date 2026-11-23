@@ -261,14 +261,26 @@ python dashboard/backend.py
 
 Then open your browser and go to: **http://localhost:5000**
 
-You'll see a beautiful dark-themed dashboard with:
+The dashboard has **two tabs**:
+
+**1. Live Pipeline** — the original denoising pipeline:
 - Real-time EEG signal visualization
-- Mode selection (Offline / Dataset / Live Stream)
+- Mode selection (Offline / Real Dataset / Live Stream)
+- Dataset selector for every supported MOABB dataset (plus subject IDs)
 - Parameter controls (channels, noise level, filter type)
 - Live metrics (SNR, accuracy, latency)
-- Training loss chart
-- Confusion matrix
-- ROC curve
+- Training loss chart, confusion matrix and ROC curve
+
+**2. UDA Results** — browser for the new cross-subject framework:
+- Lists every `results_uda/run_*` folder (dataset, methods, best accuracy)
+- Method comparison and target-data availability charts
+- Covariance-discrepancy / MMD alignment charts before vs after adaptation
+- Subject-level summary, paired Wilcoxon/Holm statistics and the six `fig*.png` figures
+- Launch a new UDA run directly from the UI (synthetic or any dataset, including `all`)
+
+The UDA tab talks to the backend via `/api/uda/runs`, `/api/uda/run/<name>`,
+`/api/uda/figure/<run>/<file>` and `/api/uda/run` (POST). Outputs still go to
+`results_uda/`; the original `results/` folder is untouched.
 
 ---
 

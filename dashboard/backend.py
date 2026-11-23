@@ -5,6 +5,7 @@ and streams results to a React frontend in real-time.
 """
 import sys
 import os
+import re
 import json
 import time
 import numpy as np
@@ -12,10 +13,17 @@ import base64
 import io
 import threading
 import traceback
+import subprocess
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(BASE_DIR)
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+UDA_RESULTS_DIR = Path(REPO_ROOT) / "results_uda"
 
-from flask import Flask, send_from_directory, jsonify, request
+sys.path.insert(0, REPO_ROOT)
+
+from flask import Flask, send_from_directory, jsonify, request, abort
 from flask_socketio import SocketIO, emit
 
 from config import PipelineConfig
@@ -26,14 +34,27 @@ from ai_denoising import DenoisingAutoencoder, train_dae, OnlineDenoiser
 from classification import extract_csp_features, EEGClassifier
 from self_learning import OnlineAdaptationEngine
 from evaluation import evaluate_pipeline, measure_latency
+from data_pipeline.dataset_fetcher import DATASETS
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.signal import welch
 
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__, static_folder=STATIC_DIR)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+ALL_DATASETS = ("all",) + tuple(DATASETS)
+
+# Separate state for the UDA experiment runner so it cannot clash with the
+# original live-pipeline "running" flag.
+uda_state = {
+    "running": False,
+    "logs": [],
+    "returncode": None,
+    "dataset": None,
+}
+uda_lock = threading.Lock()
 
 pipeline_state = {
     "running": False,
@@ -305,10 +326,22 @@ def _run_offline(config):
 
 
 def _run_dataset(config):
-    emit_update("pipeline_status", {"phase": "Loading PhysioNet dataset...", "progress": 5})
+    dataset_name = getattr(config, "dataset_name", None) or "physionet"
+    subjects = getattr(config, "dataset_subjects", None) or [1, 2, 3]
+    if dataset_name == "all":
+        dataset_name = "physionet"
+        emit_update("uda_log", {
+            "line": "Live-pipeline mode supports one dataset at a time; "
+                    "using PhysioNet. Use the UDA tab to run every dataset."
+        })
+
+    emit_update("pipeline_status", {
+        "phase": f"Loading {dataset_name} dataset (subjects {subjects})...",
+        "progress": 5,
+    })
 
     from data_pipeline import fetch_eeg_dataset
-    X, y, meta = fetch_eeg_dataset()
+    X, y, meta = fetch_eeg_dataset(dataset_name=dataset_name, subjects=subjects)
 
     if X.shape[0] == 0:
         emit_update("pipeline_error", {"error": "No trials loaded from dataset"})
@@ -319,6 +352,7 @@ def _run_dataset(config):
     config.notch_freq = 60.0 if meta["sfreq"] > 125 else meta["sfreq"] / 2.0 - 1.0
 
     emit_update("dataset_loaded", {
+        "dataset": dataset_name,
         "n_trials": X.shape[0], "n_channels": X.shape[1],
         "n_samples": X.shape[2], "sfreq": meta["sfreq"],
         "labels": np.unique(y).tolist(),
@@ -652,12 +686,17 @@ def _compute_band_power(X_noisy, X_denoised, X_clean, sfreq):
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/static/<path:path>")
 def serve_static(path):
-    return send_from_directory("static", path)
+    return send_from_directory(STATIC_DIR, path)
+
+
+@app.route("/api/datasets")
+def api_datasets():
+    return jsonify({"datasets": list(ALL_DATASETS)})
 
 
 @app.route("/api/status")
@@ -689,21 +728,256 @@ def handle_start_pipeline(data):
     sfreq = data.get("sfreq", 250)
     snr = data.get("snr", -5.0)
     filter_type = data.get("filter", "lms")
+    dataset_name = data.get("dataset", "physionet")
+    raw_subjects = data.get("subjects", "1 2 3")
+    if isinstance(raw_subjects, str):
+        subject_list = [int(s) for s in raw_subjects.replace(",", " ").split() if s]
+    else:
+        subject_list = [int(s) for s in raw_subjects]
+    if not subject_list:
+        subject_list = [1, 2, 3]
 
     config = PipelineConfig(
         n_channels=channels,
         sfreq=sfreq,
         noise_snr_db=snr,
         filter_type=filter_type,
+        dataset_name=dataset_name,
+        dataset_subjects=subject_list,
     )
 
     t = threading.Thread(target=run_pipeline_thread, args=(config, mode), daemon=True)
     t.start()
 
 
+# ---------------------------------------------------------------------------
+# UDA results browser + experiment runner
+# ---------------------------------------------------------------------------
+def _uda_run_dir(name):
+    """Resolve a run folder safely (no path traversal)."""
+    if not name or Path(name).name != name or not re.fullmatch(r"run_[A-Za-z0-9_\-]+", name):
+        return None
+    path = UDA_RESULTS_DIR / name
+    return path if path.is_dir() else None
+
+
+def _read_csv_records(path):
+    try:
+        import pandas as pd
+        return _to_serializable(pd.read_csv(path).to_dict(orient="records"))
+    except Exception:
+        return []
+
+
+def _config_of(run_dir):
+    try:
+        with open(run_dir / "config.json", "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def list_uda_runs():
+    """Summarise every results_uda/run_* folder for the dashboard."""
+    if not UDA_RESULTS_DIR.exists():
+        return []
+    runs = []
+    for path in sorted(UDA_RESULTS_DIR.iterdir(), reverse=True):
+        if not path.is_dir() or not path.name.startswith("run_"):
+            continue
+        cfg = _config_of(path)
+        summary = _read_csv_records(path / "summary.csv")
+        best_accuracy = None
+        if summary:
+            values = [r.get("accuracy_mean") for r in summary
+                      if isinstance(r.get("accuracy_mean"), (int, float))]
+            best_accuracy = max(values) if values else None
+        runs.append({
+            "name": path.name,
+            "timestamp": path.name.replace("run_", "", 1),
+            "dataset": cfg.get("dataset_name") or path.name.split("_")[-1],
+            "mode": cfg.get("mode", ""),
+            "methods": cfg.get("methods", []),
+            "proportions": cfg.get("target_proportions", []),
+            "n_subjects": cfg.get("synthetic_subjects") if cfg.get("mode") == "synthetic"
+                          else len(cfg.get("subjects", [])),
+            "n_summary_rows": len(summary),
+            "best_accuracy": best_accuracy,
+            "figures": sorted(p.name for p in path.glob("fig*.png")),
+            "excel": sorted(p.name for p in path.glob("*.xlsx")),
+        })
+    return runs
+
+
+def load_uda_run(name):
+    run_dir = _uda_run_dir(name)
+    if run_dir is None:
+        return None
+    tables = {
+        "summary": _read_csv_records(run_dir / "summary.csv"),
+        "subject_level": _read_csv_records(run_dir / "subject_level.csv"),
+        "alignment": _read_csv_records(run_dir / "alignment.csv"),
+        "statistics": _read_csv_records(run_dir / "statistics.csv"),
+    }
+    return {
+        "name": run_dir.name,
+        "config": _config_of(run_dir),
+        "tables": tables,
+        "figures": sorted(p.name for p in run_dir.glob("fig*.png")),
+        "excel": sorted(p.name for p in run_dir.glob("*.xlsx")),
+        "combined_excel": sorted(p.name for p in UDA_RESULTS_DIR.glob(
+            "results_uda_summary_*.xlsx"
+        )) if UDA_RESULTS_DIR.exists() else [],
+    }
+
+
+def _append_uda_log(line):
+    with uda_lock:
+        uda_state["logs"].append({"line": line.rstrip()})
+        uda_state["logs"] = uda_state["logs"][-800:]
+    emit_update("uda_log", {"line": line.rstrip()})
+
+
+def _stream_uda_process(proc, dataset):
+    try:
+        for line in iter(proc.stdout.readline, ""):
+            if line:
+                _append_uda_log(line)
+        returncode = proc.wait()
+    except Exception as exc:
+        _append_uda_log(f"[dashboard] Failed to read process output: {exc}")
+        returncode = -1
+    finally:
+        with uda_lock:
+            uda_state["running"] = False
+            uda_state["returncode"] = returncode
+            uda_state["process"] = None
+        emit_update("uda_status", {
+            "running": False, "returncode": returncode, "dataset": dataset
+        })
+        emit_update("uda_complete", {
+            "dataset": dataset,
+            "returncode": returncode,
+            "success": returncode == 0,
+        })
+
+
+@app.route("/api/uda/runs")
+def api_uda_runs():
+    return jsonify(_to_serializable({"runs": list_uda_runs()}))
+
+
+@app.route("/api/uda/run/<name>")
+def api_uda_run(name):
+    payload = load_uda_run(name)
+    if payload is None:
+        abort(404)
+    return jsonify(payload)
+
+
+@app.route("/api/uda/figure/<name>/<filename>")
+def api_uda_figure(name, filename):
+    run_dir = _uda_run_dir(name)
+    if run_dir is None or not re.fullmatch(r"fig[0-9A-Za-z_\-]+\.png", filename):
+        abort(404)
+    return send_from_directory(str(run_dir), filename)
+
+
+@app.route("/api/uda/status")
+def api_uda_status():
+    with uda_lock:
+        data = dict(uda_state)
+        data["process"] = None
+    return jsonify(_to_serializable(data))
+
+
+@app.route("/api/uda/run", methods=["POST"])
+def api_uda_start():
+    with uda_lock:
+        if uda_state["running"]:
+            return jsonify({"error": "A UDA run is already in progress"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    mode = payload.get("mode", "dataset")
+    if mode not in ("synthetic", "dataset"):
+        return jsonify({"error": f"Unknown mode: {mode}"}), 400
+
+    dataset = str(payload.get("dataset", "bci2a"))
+    if mode == "dataset" and dataset not in ALL_DATASETS:
+        return jsonify({"error": f"Unknown dataset: {dataset}"}), 400
+
+    def _numbers(key, cast):
+        raw = payload.get(key, "")
+        if isinstance(raw, list):
+            return [cast(v) for v in raw]
+        return [cast(v) for v in str(raw).replace(",", " ").split() if str(v).strip()]
+
+    try:
+        subjects = _numbers("subjects", int) or [1, 2, 3]
+        proportions = _numbers("proportions", float) or [1.0]
+        epochs = int(payload.get("epochs", 60))
+        lambda_coral = float(payload.get("lambda_coral", 1000.0))
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": f"Invalid parameter: {exc}"}), 400
+
+    if not proportions or any(p <= 0 or p > 1 for p in proportions):
+        return jsonify({"error": "Proportions must be numbers in (0, 1]"}), 400
+
+    cmd = [
+        sys.executable, "-m", "uda_cross_subject.run_uda",
+        "--mode", mode,
+        "--output-dir", str(UDA_RESULTS_DIR),
+        "--epochs", str(epochs),
+        "--lambda-coral", str(lambda_coral),
+        "--proportions", *(str(p) for p in proportions),
+    ]
+    if mode == "dataset":
+        cmd += ["--dataset", dataset, "--subjects", *(str(s) for s in subjects)]
+
+    with uda_lock:
+        uda_state["running"] = True
+        uda_state["logs"] = []
+        uda_state["returncode"] = None
+        uda_state["dataset"] = dataset
+    _append_uda_log("[dashboard] " + " ".join(cmd))
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except Exception as exc:
+        with uda_lock:
+            uda_state["running"] = False
+        return jsonify({"error": f"Could not start UDA process: {exc}"}), 500
+
+    with uda_lock:
+        uda_state["process"] = proc
+    threading.Thread(
+        target=_stream_uda_process, args=(proc, dataset), daemon=True
+    ).start()
+    return jsonify({"started": True, "dataset": dataset, "command": cmd})
+
+
+@app.route("/api/uda/stop", methods=["POST"])
+def api_uda_stop():
+    with uda_lock:
+        proc = uda_state.get("process")
+    if proc is None or proc.poll() is not None:
+        return jsonify({"stopped": False})
+    proc.terminate()
+    _append_uda_log("[dashboard] UDA run terminated by user")
+    return jsonify({"stopped": True})
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  EEG Dashboard Server")
     print("  Open http://localhost:5000 in your browser")
+    print("  Tabs: Live Pipeline | UDA Results")
     print("=" * 50)
     socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)

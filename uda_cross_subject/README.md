@@ -123,6 +123,21 @@ The figures use the same styling as the existing `evaluation/visualization.py`
 (serif font, 300 dpi, `fig*.png` naming). Use `--output-dir` to change the
 output root.
 
+## Dashboard integration
+
+The existing web dashboard can browse and launch UDA runs:
+
+```
+python dashboard/backend.py
+# open http://localhost:5000 and select the "UDA Results" tab
+```
+
+It lists every `results_uda/run_*` folder, plots method comparison, target-data
+availability and alignment metrics, shows the paired statistics tables and the
+six generated figures, and can start a new run (including `--dataset all`) from
+the sidebar. Backend endpoints: `/api/uda/runs`, `/api/uda/run/<name>`,
+`/api/uda/figure/<run>/<file>`, `POST /api/uda/run`, `POST /api/uda/stop`.
+
 ## Important notes
 
 - **Target test labels** are used only for final evaluation after training —

@@ -351,6 +351,167 @@
         .log-entry .log-error { color: var(--accent-red); }
         .log-entry .log-success { color: var(--accent-green); }
 
+        /* ---- UDA results tab ---- */
+        .top-nav {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .top-nav .tab-btn {
+            padding: 13px 20px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .top-nav .tab-btn:hover { color: var(--text-primary); }
+        .top-nav .tab-btn.active {
+            color: var(--accent-cyan);
+            border-bottom-color: var(--accent-cyan);
+        }
+        .top-nav .nav-hint {
+            margin-left: auto;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .uda-view {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            min-height: calc(100vh - 110px);
+        }
+        .uda-sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow-y: auto;
+            max-height: calc(100vh - 110px);
+        }
+        .uda-main {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 110px);
+        }
+        .uda-head h2 {
+            font-size: 20px;
+            font-weight: 700;
+        }
+        .uda-head p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .run-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+        .run-item {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        .run-item:hover { border-color: var(--accent-blue); }
+        .run-item.active { border-color: var(--accent-cyan); background: rgba(6,182,212,0.08); }
+        .run-item .run-name { font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+        .run-item .run-meta { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+
+        .ghost-btn {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .ghost-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+        .ghost-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .ghost-btn.danger:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+        .log-box {
+            background: var(--bg-primary);
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 160px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .log-line { padding: 1px 0; border-bottom: 1px solid rgba(42,52,80,0.4); }
+
+        .data-table-wrap { max-height: 320px; overflow: auto; border-radius: 8px; }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+        }
+        .data-table th, .data-table td {
+            padding: 7px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .data-table th {
+            position: sticky;
+            top: 0;
+            background: var(--bg-secondary);
+            color: var(--accent-cyan);
+            font-weight: 600;
+            z-index: 1;
+        }
+        .data-table tr:hover td { background: rgba(59,130,246,0.06); }
+
+        .figure-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+        }
+        .figure-card {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            transition: all 0.2s;
+        }
+        .figure-card:hover { border-color: var(--accent-blue); }
+        .figure-card img { width: 100%; height: auto; border-radius: 6px; display: block; }
+        .figure-card figcaption {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .empty-state {
+            padding: 60px 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -381,6 +542,7 @@
         }
 
         function App() {
+            const [activeTab, setActiveTab] = useState("pipeline");
             const [mode, setMode] = useState("offline");
             const [running, setRunning] = useState(false);
             const [progress, setProgress] = useState(0);
@@ -389,6 +551,9 @@
             const [sfreq, setSfreq] = useState(250);
             const [snr, setSnr] = useState(-5);
             const [filterType, setFilterType] = useState("lms");
+            const [dataset, setDataset] = useState("physionet");
+            const [datasetOptions, setDatasetOptions] = useState([]);
+            const [subjects, setSubjects] = useState("1 2 3");
             const [logs, setLogs] = useState([]);
             const [metrics, setMetrics] = useState({});
 
@@ -421,9 +586,18 @@
             }, [logs]);
 
             useEffect(() => {
+                fetch("/api/datasets")
+                    .then(r => r.json())
+                    .then(d => setDatasetOptions(d.datasets || []))
+                    .catch(() => setDatasetOptions([]));
+            }, []);
+
+            useEffect(() => {
                 socket.on("connected", () => addLog("Connected to server", "success"));
                 socket.on("pipeline_status", (data) => {
-                    setRunning(true);
+                    // Backend sends `running` on every event (including the final
+                    // one). Trust it so the UI never stays stuck on "Running".
+                    setRunning(typeof data.running === "boolean" ? data.running : true);
                     setPhase(data.phase || "");
                     setProgress(data.progress || 0);
                     addLog(data.phase, "phase");
@@ -476,7 +650,7 @@
                     addLog(`Filtering trial ${data.trial}/${data.total}`, "phase");
                 });
                 socket.on("dataset_loaded", (data) => {
-                    addLog(`Dataset: ${data.n_trials} trials, ${data.n_channels}ch, ${data.sfreq}Hz`, "success");
+                    addLog(`Dataset ${data.dataset || ''}: ${data.n_trials} trials, ${data.n_channels}ch, ${data.sfreq}Hz`, "success");
                 });
 
                 return () => {
@@ -512,7 +686,7 @@
                 setLatency(null);
                 setStreamPrediction(null);
                 setAdaptEvents([]);
-                socket.emit("start_pipeline", { mode, channels, sfreq, snr, filter: filterType });
+                socket.emit("start_pipeline", { mode, channels, sfreq, snr, filter: filterType, dataset, subjects });
             };
 
             return (
@@ -531,6 +705,19 @@
                         </div>
                     </header>
 
+                    <div className="top-nav">
+                        <button className={`tab-btn ${activeTab === 'pipeline' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('pipeline')}>
+                            Live Pipeline
+                        </button>
+                        <button className={`tab-btn ${activeTab === 'uda' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('uda')}>
+                            UDA Results
+                        </button>
+                        <span className="nav-hint">results_uda/ &nbsp;•&nbsp; source_only / CORAL / MMD / DANN</span>
+                    </div>
+
+                    {activeTab === "pipeline" ? (
                     <div className="dashboard">
                         <aside className="sidebar">
                             <div className="sidebar-section">
@@ -538,7 +725,7 @@
                                 <div className="mode-buttons">
                                     {[
                                         { id: "offline", title: "Offline Synthetic", desc: "200 trials, no hardware needed" },
-                                        { id: "dataset", title: "PhysioNet Dataset", desc: "Real EEG from MOABB" },
+                                        { id: "dataset", title: "Real Dataset", desc: "Select any MOABB dataset" },
                                         { id: "synthetic_stream", title: "Live Stream", desc: "Real-time BCI simulation" },
                                     ].map(m => (
                                         <button key={m.id} className={`mode-btn ${mode === m.id ? 'active' : ''}`}
@@ -571,6 +758,22 @@
                                         <option value="rls">RLS</option>
                                     </select>
                                 </div>
+                                {mode === "dataset" && (
+                                    <>
+                                        <div className="control-group">
+                                            <label>Dataset</label>
+                                            <select value={dataset} onChange={e => setDataset(e.target.value)} disabled={running}>
+                                                {(datasetOptions.length ? datasetOptions : ["physionet", "bci2a", "openbmi", "weibo2014"]).map(d => (
+                                                    <option key={d} value={d}>{d}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="control-group">
+                                            <label>Subjects (space separated)</label>
+                                            <input value={subjects} onChange={e => setSubjects(e.target.value)} disabled={running}/>
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             <button className={`start-btn ${running ? 'running' : 'ready'}`}
@@ -669,6 +872,405 @@
                             )}
                         </main>
                     </div>
+                    ) : (
+                        <UDAView />
+                    )}
+                </div>
+            );
+        }
+
+        // -------------------- UDA Results tab --------------------
+        const UDA_COLORS = { source_only: "#94a3b8", coral: "#3b82f6", mmd: "#f59e0b", dann: "#8b5cf6" };
+        const UDA_METHODS = ["source_only", "coral", "mmd", "dann"];
+        const PROP_COLORS = ["#06b6d4", "#3b82f6", "#8b5cf6", "#f59e0b", "#10b981"];
+
+        function udaMean(rows, field) {
+            const vals = rows.map(r => r[field]).filter(v => typeof v === "number" && isFinite(v));
+            return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+        }
+
+        function formatCell(v) {
+            if (v === null || v === undefined) return "—";
+            if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(4);
+            return String(v);
+        }
+
+        function DataTable({ rows }) {
+            if (!rows || !rows.length) return <div className="empty-state">No data in this table.</div>;
+            const cols = Object.keys(rows[0]);
+            return (
+                <div className="data-table-wrap">
+                    <table className="data-table">
+                        <thead><tr>{cols.map(c => <th key={c}>{c}</th>)}</tr></thead>
+                        <tbody>
+                            {rows.map((r, i) => (
+                                <tr key={i}>{cols.map(c => <td key={c}>{formatCell(r[c])}</td>)}</tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        }
+
+        function UdaMethodChart({ summary }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            useEffect(() => {
+                if (!canvasRef.current || !summary || !summary.length) return;
+                if (chartRef.current) chartRef.current.destroy();
+                const props = [...new Set(summary.map(r => r.target_proportion))].sort((a, b) => a - b);
+                const methods = UDA_METHODS.filter(m => summary.some(r => r.method === m));
+                chartRef.current = new Chart(canvasRef.current, {
+                    type: "bar",
+                    data: {
+                        labels: methods,
+                        datasets: props.map((p, i) => ({
+                            label: `${(p * 100).toFixed(0)}% target data`,
+                            data: methods.map(m => udaMean(summary.filter(
+                                r => r.method === m && r.target_proportion === p
+                            ), "accuracy_mean")),
+                            backgroundColor: PROP_COLORS[i % PROP_COLORS.length],
+                            borderRadius: 4,
+                        })),
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: "#8892a8", font: { size: 10 } } } },
+                        scales: {
+                            x: { ticks: { color: "#5a6380" }, grid: { display: false } },
+                            y: { beginAtZero: true, max: 1, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" } },
+                        },
+                    },
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [summary]);
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        function UdaTargetEffectChart({ summary }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            useEffect(() => {
+                if (!canvasRef.current || !summary || !summary.length) return;
+                if (chartRef.current) chartRef.current.destroy();
+                const props = [...new Set(summary.map(r => r.target_proportion))].sort((a, b) => a - b);
+                const methods = UDA_METHODS.filter(m => summary.some(r => r.method === m));
+                chartRef.current = new Chart(canvasRef.current, {
+                    type: "line",
+                    data: {
+                        labels: props.map(p => `${(p * 100).toFixed(0)}%`),
+                        datasets: methods.map(m => ({
+                            label: m,
+                            data: props.map(p => udaMean(summary.filter(
+                                r => r.method === m && r.target_proportion === p
+                            ), "accuracy_mean")),
+                            borderColor: UDA_COLORS[m] || "#7f8c8d",
+                            backgroundColor: (UDA_COLORS[m] || "#7f8c8d") + "33",
+                            tension: 0.3, pointRadius: 3, borderWidth: 2,
+                        })),
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: "#8892a8", font: { size: 10 } } } },
+                        scales: {
+                            x: { title: { display: true, text: "Unlabelled target data", color: "#5a6380" }, ticks: { color: "#5a6380" }, grid: { display: false } },
+                            y: { beginAtZero: true, max: 1, title: { display: true, text: "Accuracy", color: "#5a6380" }, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" } },
+                        },
+                    },
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [summary]);
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        function UdaAlignmentChart({ rows, field, title }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            useEffect(() => {
+                if (!canvasRef.current || !rows || !rows.length) return;
+                if (chartRef.current) chartRef.current.destroy();
+                const methods = UDA_METHODS.filter(m => rows.some(r => r.method === m));
+                chartRef.current = new Chart(canvasRef.current, {
+                    type: "bar",
+                    data: {
+                        labels: methods,
+                        datasets: [
+                            { label: "Before", data: methods.map(m => udaMean(rows.filter(r => r.method === m), `${field}_before`)), backgroundColor: "#475569", borderRadius: 4 },
+                            { label: "After", data: methods.map(m => udaMean(rows.filter(r => r.method === m), `${field}_after`)), backgroundColor: "#06b6d4", borderRadius: 4 },
+                        ],
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: "#8892a8", font: { size: 10 } } } },
+                        scales: {
+                            x: { ticks: { color: "#5a6380" }, grid: { display: false } },
+                            y: { beginAtZero: true, ticks: { color: "#5a6380" }, grid: { color: "rgba(42,52,80,0.3)" } },
+                        },
+                    },
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [rows, field]);
+            return <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>;
+        }
+
+        function UDAView() {
+            const [runs, setRuns] = useState([]);
+            const [selected, setSelected] = useState("");
+            const [detail, setDetail] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [launching, setLaunching] = useState(false);
+            const [logs, setLogs] = useState([]);
+            const logsRef = useRef(null);
+
+            const [udaMode, setUdaMode] = useState("dataset");
+            const [udaDataset, setUdaDataset] = useState("all");
+            const [udaOptions, setUdaOptions] = useState([]);
+            const [udaSubjects, setUdaSubjects] = useState("1 2 3");
+            const [udaProps, setUdaProps] = useState("1.0");
+            const [udaEpochs, setUdaEpochs] = useState(60);
+            const [udaLambda, setUdaLambda] = useState(1000);
+
+            const loadRuns = useCallback(() => {
+                setLoading(true);
+                fetch("/api/uda/runs")
+                    .then(r => r.json())
+                    .then(d => {
+                        const list = d.runs || [];
+                        setRuns(list);
+                        setSelected(cur => list.some(x => x.name === cur) ? cur : (list[0]?.name || ""));
+                    })
+                    .catch(() => setRuns([]))
+                    .finally(() => setLoading(false));
+            }, []);
+
+            useEffect(() => { loadRuns(); }, [loadRuns]);
+
+            useEffect(() => {
+                fetch("/api/datasets")
+                    .then(r => r.json())
+                    .then(d => setUdaOptions(d.datasets || []))
+                    .catch(() => setUdaOptions([]));
+            }, []);
+
+            useEffect(() => {
+                if (!selected) { setDetail(null); return; }
+                fetch(`/api/uda/run/${encodeURIComponent(selected)}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(setDetail)
+                    .catch(() => setDetail(null));
+            }, [selected]);
+
+            useEffect(() => {
+                const onLog = d => setLogs(prev => [...prev.slice(-400), d.line || ""]);
+                const onDone = () => { setLaunching(false); loadRuns(); };
+                socket.on("uda_log", onLog);
+                socket.on("uda_complete", onDone);
+                return () => { socket.off("uda_log", onLog); socket.off("uda_complete", onDone); };
+            }, [loadRuns]);
+
+            useEffect(() => {
+                if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
+            }, [logs]);
+
+            const startRun = async () => {
+                setLaunching(true);
+                setLogs(["[dashboard] Starting UDA experiment..."]);
+                try {
+                    const res = await fetch("/api/uda/run", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            mode: udaMode,
+                            dataset: udaDataset,
+                            subjects: udaSubjects,
+                            proportions: udaProps,
+                            epochs: Number(udaEpochs),
+                            lambda_coral: Number(udaLambda),
+                        }),
+                    });
+                    const d = await res.json();
+                    if (!res.ok) throw new Error(d.error || "Could not start run");
+                } catch (e) {
+                    setLaunching(false);
+                    setLogs(prev => [...prev, `[dashboard] ${e.message}`]);
+                }
+            };
+
+            const stopRun = async () => {
+                await fetch("/api/uda/stop", { method: "POST" });
+                setLaunching(false);
+            };
+
+            const summary = detail?.tables?.summary || [];
+            const alignment = detail?.tables?.alignment || [];
+            const stats = detail?.tables?.statistics || [];
+            const best = summary.reduce((a, r) =>
+                (r.accuracy_mean ?? -1) > (a?.accuracy_mean ?? -1) ? r : a, null);
+            const datasetLabel = detail?.config?.dataset_name || selected || "—";
+            const nSubjects = detail?.config?.subjects?.length ||
+                              detail?.config?.synthetic_subjects || "—";
+
+            return (
+                <div className="uda-view">
+                    <aside className="uda-sidebar">
+                        <div className="sidebar-section">
+                            <h3>Saved Runs</h3>
+                            <div className="run-list">
+                                {runs.map(r => (
+                                    <button key={r.name}
+                                            className={`run-item ${selected === r.name ? 'active' : ''}`}
+                                            onClick={() => setSelected(r.name)}>
+                                        <div className="run-name">{r.name}</div>
+                                        <div className="run-meta">
+                                            {r.dataset} • {(r.methods || []).length} methods • {r.n_summary_rows} rows
+                                        </div>
+                                        <div className="run-meta">
+                                            best acc: {r.best_accuracy != null ? (r.best_accuracy * 100).toFixed(1) + '%' : '--'}
+                                        </div>
+                                    </button>
+                                ))}
+                                {!runs.length && !loading && (
+                                    <div className="empty-state">No runs yet. Launch one below.</div>
+                                )}
+                            </div>
+                            <button className="ghost-btn" style={{width:'100%',marginTop:10}} onClick={loadRuns}>
+                                Refresh runs
+                            </button>
+                        </div>
+
+                        <div className="sidebar-section">
+                            <h3>Launch UDA Experiment</h3>
+                            <div className="control-group">
+                                <label>Mode</label>
+                                <select value={udaMode} onChange={e => setUdaMode(e.target.value)} disabled={launching}>
+                                    <option value="dataset">Real dataset (MOABB)</option>
+                                    <option value="synthetic">Synthetic smoke test</option>
+                                </select>
+                            </div>
+                            {udaMode === "dataset" && (
+                                <div className="control-group">
+                                    <label>Dataset</label>
+                                    <select value={udaDataset} onChange={e => setUdaDataset(e.target.value)} disabled={launching}>
+                                        {(udaOptions.length ? udaOptions : ["all", "bci2a", "physionet"]).map(d => (
+                                            <option key={d} value={d}>{d}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            <div className="control-group">
+                                <label>Subjects (space separated)</label>
+                                <input value={udaSubjects} onChange={e => setUdaSubjects(e.target.value)} disabled={launching || udaMode === "synthetic"}/>
+                            </div>
+                            <div className="control-group">
+                                <label>Target proportions</label>
+                                <input value={udaProps} onChange={e => setUdaProps(e.target.value)} disabled={launching}/>
+                            </div>
+                            <div className="control-group">
+                                <label>Epochs</label>
+                                <input type="number" value={udaEpochs} onChange={e => setUdaEpochs(e.target.value)} disabled={launching}/>
+                            </div>
+                            <div className="control-group">
+                                <label>CORAL lambda</label>
+                                <input type="number" value={udaLambda} onChange={e => setUdaLambda(e.target.value)} disabled={launching}/>
+                            </div>
+                            <button className={`start-btn ${launching ? 'running' : 'ready'}`}
+                                    onClick={startRun} disabled={launching}>
+                                {launching ? 'Running...' : 'Run UDA'}
+                            </button>
+                            {launching && (
+                                <button className="ghost-btn danger" style={{width:'100%',marginTop:8}} onClick={stopRun}>
+                                    Stop run
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="sidebar-section">
+                            <h3>Run Output</h3>
+                            <div className="log-box" ref={logsRef}>
+                                {logs.length ? logs.map((line, i) => (
+                                    <div className="log-line" key={i}>{line}</div>
+                                )) : <span>Waiting for a run...</span>}
+                            </div>
+                        </div>
+                    </aside>
+
+                    <main className="uda-main">
+                        <div className="uda-head">
+                            <h2>Unsupervised Domain Adaptation</h2>
+                            <p>Cross-subject EEG motor imagery • Leave-One-Subject-Out • {datasetLabel}</p>
+                        </div>
+
+                        {!detail ? (
+                            <div className="chart-card full">
+                                <div className="empty-state">
+                                    {loading ? 'Loading runs...' : 'Select a run on the left, or launch a new experiment.'}
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="metrics-row">
+                                    <MetricCard label="Best Accuracy" value={best ? (best.accuracy_mean * 100).toFixed(1) : '--'} unit="%" color="green"/>
+                                    <MetricCard label="Best F1" value={best ? (best.f1_macro_mean * 100).toFixed(1) : '--'} unit="%" color="cyan"/>
+                                    <MetricCard label="Best Kappa" value={best ? best.cohen_kappa_mean.toFixed(3) : '--'} unit="agreement" color="purple"/>
+                                    <MetricCard label="Subjects" value={nSubjects} unit="LOSO folds" color="blue"/>
+                                    <MetricCard label="Methods" value={new Set(summary.map(r => r.method)).size} unit="conditions" color="amber"/>
+                                </div>
+
+                                <div className="charts-grid">
+                                    <div className="chart-card">
+                                        <h3>Method Comparison <span>mean accuracy by method</span></h3>
+                                        <UdaMethodChart summary={summary}/>
+                                    </div>
+                                    <div className="chart-card">
+                                        <h3>Target Data Availability <span>25 / 50 / 75 / 100%</span></h3>
+                                        <UdaTargetEffectChart summary={summary}/>
+                                    </div>
+                                </div>
+
+                                <div className="charts-grid">
+                                    <div className="chart-card">
+                                        <h3>Covariance Discrepancy <span>before vs after</span></h3>
+                                        <UdaAlignmentChart rows={alignment} field="covariance_discrepancy" title="discrepancy"/>
+                                    </div>
+                                    <div className="chart-card">
+                                        <h3>Kernel MMD <span>before vs after</span></h3>
+                                        <UdaAlignmentChart rows={alignment} field="mmd" title="MMD"/>
+                                    </div>
+                                </div>
+
+                                <div className="charts-grid">
+                                    <div className="chart-card">
+                                        <h3>Paired Statistics <span>UDA vs source-only</span></h3>
+                                        <DataTable rows={stats}/>
+                                    </div>
+                                    <div className="chart-card">
+                                        <h3>Summary <span>mean ± std across subjects</span></h3>
+                                        <DataTable rows={summary}/>
+                                    </div>
+                                </div>
+
+                                <div className="chart-card full">
+                                    <h3>Publication Figures <span>generated in the run folder</span></h3>
+                                    <div className="figure-grid">
+                                        {detail.figures.map(f => {
+                                            const url = `/api/uda/figure/${encodeURIComponent(detail.name)}/${encodeURIComponent(f)}`;
+                                            return (
+                                                <figure className="figure-card" key={f}>
+                                                    <a href={url} target="_blank" rel="noreferrer">
+                                                        <img src={url} alt={f}/>
+                                                    </a>
+                                                    <figcaption>{f}</figcaption>
+                                                </figure>
+                                            );
+                                        })}
+                                        {!detail.figures.length && (
+                                            <div className="empty-state">No figures in this run.</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </main>
                 </div>
             );
         }
